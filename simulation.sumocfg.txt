@@ -1,0 +1,10 @@
+<configuration>
+    <input>
+        <net-file value="grid-network.net.xml"/>
+        <route-files value="vehicles.rou.xml,pedestrians.rou.xml"/>
+    </input>
+    <time>
+        <begin value="0"/>
+        <end value="3600"/>
+    </time>
+</configuration>
