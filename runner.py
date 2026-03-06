@@ -2,6 +2,16 @@ import os
 import sys
 import time
 
+from gymenv import SumoIntersectionEnv
+
+from stable_baselines3 import DQN
+
+env = SumoIntersectionEnv()
+
+model = DQN("MlpPolicy", env, verbose=1, buffer_size=10000)
+
+model.learn(total_timesteps=100000)
+
 if 'SUMO_HOME' in os.environ:
     tools = os.path.join(os.environ['SUMO_HOME'], 'tools')
     sys.path.append(tools)
