@@ -60,6 +60,26 @@ class SumoIntersectionEnv(gym.Env):
 
         ## read data from traci about current traffic state
 
+        incoming_edges = ['A0A1', 'A0B0', 'A1A0', 'A1A2', 'A1B1', 'A2A1', 
+                          'A2A3', 'A2B2', 'A3A2', 'A3B3', 'B0A0', 'B0B1', 
+                          'B0C0', 'B1A1', 'B1B0', 'B1B2', 'B1C1', 'B2A2', 
+                          'B2B1', 'B2B3', 'B2C2', 'B3A3', 'B3B2', 'B3C3', 
+                          'C0B0', 'C0C1', 'C0D0', 'C1B1', 'C1C0', 'C1C2', 
+                          'C1D1', 'C2B2', 'C2C1', 'C2C3', 'C2D2', 'C3B3', 
+                          'C3C2', 'C3D3', 'D0C0', 'D0D1', 'D1C1', 'D1D0', 
+                          'D1D2', 'D2C2', 'D2D1', 'D2D3', 'D3C3', 'D3D2'
+                          ]
+        
+
+        state = []
+
+        for edge in incoming_edges:
+            queue_length = traci.edge.getLastStepHaltingNumber(edge)
+            state.append(queue_length)
+
+        for edge in incoming_edges:
+            wait_time = traci.edge.getWaitingTime(edge)
+            state.append(wait_time)
 
 
         # placeholder

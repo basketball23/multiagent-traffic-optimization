@@ -1,6 +1,6 @@
 <configuration>
     <input>
-        <net-file value="test-network.net.xml"/>
+        <net-file value="grid-network.net.xml"/>
         <route-files value="vehicles.rou.xml,pedestrians.rou.xml"/>
     </input>
     <time>

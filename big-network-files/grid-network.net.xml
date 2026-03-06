@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<!-- generated on 2026-03-02 22:08:48 by Eclipse SUMO netedit Version 1.20.0
+<!-- generated on 2026-03-05 22:08:30 by Eclipse SUMO netedit Version 1.20.0
 <configuration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/neteditConfiguration.xsd">
 
     <input>
@@ -929,6 +929,12 @@
         <phase duration="42" state="GrrrrrGGg"/>
         <phase duration="3"  state="Grrrrryyy"/>
     </tlLogic>
+    <tlLogic id="D3" type="static" programID="0" offset="0">
+        <phase duration="42" state="GgGr"/>
+        <phase duration="3"  state="GyGr"/>
+        <phase duration="42" state="GrGg"/>
+        <phase duration="3"  state="GrGy"/>
+    </tlLogic>
 
     <junction id="A0" type="traffic_light" x="0.00" y="0.00" incLanes="A1A0_0 B0A0_0" intLanes=":A0_0_0 :A0_1_0" shape="-3.20,3.20 3.20,3.20 3.20,-3.20 -0.36,-2.49 -1.60,-1.60 -2.49,-0.36 -3.02,1.24">
         <request index="0" response="00" foes="00" cont="0"/>
@@ -1106,7 +1112,7 @@
         <request index="7" response="000011010" foes="000011110" cont="0"/>
         <request index="8" response="000010001" foes="000010001" cont="1"/>
     </junction>
-    <junction id="D3" type="priority" x="300.00" y="300.00" incLanes="D2D3_0 C3D3_0" intLanes=":D3_0_0 :D3_4_0 :D3_2_0 :D3_5_0" shape="303.20,296.80 296.80,296.80 296.80,303.20 300.36,302.49 301.60,301.60 302.49,300.36 303.02,298.76">
+    <junction id="D3" type="traffic_light" x="300.00" y="300.00" incLanes="D2D3_0 C3D3_0" intLanes=":D3_0_0 :D3_4_0 :D3_2_0 :D3_5_0" shape="303.20,296.80 296.80,296.80 296.80,303.20 300.36,302.49 301.60,301.60 302.49,300.36 303.02,298.76">
         <request index="0" response="0000" foes="1000" cont="0"/>
         <request index="1" response="0100" foes="0100" cont="1"/>
         <request index="2" response="0000" foes="0010" cont="0"/>
@@ -1302,8 +1308,8 @@
     <connection from="C3C2" to="C2C1" fromLane="0" toLane="0" via=":C2_1_0" tl="C2" linkIndex="1" dir="s" state="O"/>
     <connection from="C3C2" to="C2D2" fromLane="0" toLane="0" via=":C2_2_0" tl="C2" linkIndex="2" dir="l" state="o"/>
     <connection from="C3C2" to="C2C3" fromLane="0" toLane="0" via=":C2_3_0" tl="C2" linkIndex="3" dir="t" state="o"/>
-    <connection from="C3D3" to="D3D2" fromLane="0" toLane="0" via=":D3_2_0" dir="r" state="M"/>
-    <connection from="C3D3" to="D3C3" fromLane="0" toLane="0" via=":D3_3_0" dir="t" state="m"/>
+    <connection from="C3D3" to="D3D2" fromLane="0" toLane="0" via=":D3_2_0" tl="D3" linkIndex="2" dir="r" state="O"/>
+    <connection from="C3D3" to="D3C3" fromLane="0" toLane="0" via=":D3_3_0" tl="D3" linkIndex="3" dir="t" state="o"/>
     <connection from="D0C0" to="C0C1" fromLane="0" toLane="0" via=":C0_3_0" tl="C0" linkIndex="3" dir="r" state="O"/>
     <connection from="D0C0" to="C0B0" fromLane="0" toLane="0" via=":C0_4_0" tl="C0" linkIndex="4" dir="s" state="O"/>
     <connection from="D0C0" to="C0D0" fromLane="0" toLane="0" via=":C0_5_0" tl="C0" linkIndex="5" dir="t" state="o"/>
@@ -1326,8 +1332,8 @@
     <connection from="D2D1" to="D1C1" fromLane="0" toLane="0" via=":D1_0_0" tl="D1" linkIndex="0" dir="r" state="O"/>
     <connection from="D2D1" to="D1D0" fromLane="0" toLane="0" via=":D1_1_0" tl="D1" linkIndex="1" dir="s" state="O"/>
     <connection from="D2D1" to="D1D2" fromLane="0" toLane="0" via=":D1_2_0" tl="D1" linkIndex="2" dir="t" state="o"/>
-    <connection from="D2D3" to="D3C3" fromLane="0" toLane="0" via=":D3_0_0" dir="l" state="M"/>
-    <connection from="D2D3" to="D3D2" fromLane="0" toLane="0" via=":D3_1_0" dir="t" state="m"/>
+    <connection from="D2D3" to="D3C3" fromLane="0" toLane="0" via=":D3_0_0" tl="D3" linkIndex="0" dir="l" state="O"/>
+    <connection from="D2D3" to="D3D2" fromLane="0" toLane="0" via=":D3_1_0" tl="D3" linkIndex="1" dir="t" state="o"/>
     <connection from="D3C3" to="C3B3" fromLane="0" toLane="0" via=":C3_0_0" tl="C3" linkIndex="0" dir="s" state="O"/>
     <connection from="D3C3" to="C3C2" fromLane="0" toLane="0" via=":C3_1_0" tl="C3" linkIndex="1" dir="l" state="o"/>
     <connection from="D3C3" to="C3D3" fromLane="0" toLane="0" via=":C3_2_0" tl="C3" linkIndex="2" dir="t" state="o"/>
