@@ -1,3 +1,6 @@
+# About:
+- This project attempts to use Multi-Agent Reinforcement Learning (MARL) to minimize joint pedestrian-vehicle waiting times
+
 ## Pipeline will go:
 1. SUMO runs simulation step
 2. TraCI fetches information/data every x seconds using built-in functions
