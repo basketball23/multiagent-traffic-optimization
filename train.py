@@ -9,7 +9,6 @@ from collections import deque
 
 # deque to keep track of previous traffic states to prevent rapid switching
 # dictionary of deques for each intersection
-phase_buffers = {}
 BUFFER_SIZE = 10
 
 def fair_wait_time_reward(traffic_signal):
@@ -17,11 +16,20 @@ def fair_wait_time_reward(traffic_signal):
     custom reward function to balance vehicles, pedestrians, and signal frequency switching
     '''
 
-    ts_id = traffic_signal.id
-    current_phase = traffic_signal.green_phase
+    sim_time = traffic_signal.sumo.simulation.getTime()
 
-    if ts_id not in phase_buffers:
-        phase_buffers[ts_id] = deque(maxlen=BUFFER_SIZE)
+    if not hasattr(traffic_signal, 'phase_buffer') or sim_time < 5.0:
+        traffic_signal.phase_buffer = deque(maxlen=BUFFER_SIZE)
+
+        ts_id = traffic_signal.id
+        all_edges = traffic_signal.sumo.edge.getIDList()
+
+        traffic_signal.pedestrian_edges = [
+            e for e in all_edges 
+            if e.startswith(f":{ts_id}_w") or e.startswith(f":{ts_id}_c")
+        ]
+
+    current_phase = traffic_signal.green_phase
 
     # vehicle delay
     vehicle_delay = traffic_signal.get_total_queued()
@@ -29,19 +37,23 @@ def fair_wait_time_reward(traffic_signal):
     # pedestrian delay
     pedestrian_waiting_count = 0
     controlled_lanes = traffic_signal.lanes
+
     for lane in controlled_lanes:
-        edge_id = traci.lane.getEdgeID(lane)
-        if "crosswalk" in edge_id or "walking" in edge_id:
-            pedestrian_waiting_count += traci.edge.getLastStepHaltingNumber(edge_id)
+
+        allowed_classes = traffic_signal.sumo.lane.getAllowed(lane)
+
+        if "pedestrian" in allowed_classes:
+            pedestrian_waiting_count += traffic_signal.sumo.lane.getLastStepHaltingNumber(lane)
+
     
     # switching penalty
     switching_penalty = 0
-    # switching penality weight
+    # switching penalty weight
     sp_w = 5.0
 
-    if len(phase_buffers[ts_id]) > 1:
+    if len(traffic_signal.phase_buffer) > 1:
         total_switches = 0
-        history = list(phase_buffers[ts_id])
+        history = list(traffic_signal.phase_buffer)
 
         for i in range(1, len(history)):
             if history[i] != history[i-1]:
@@ -49,7 +61,7 @@ def fair_wait_time_reward(traffic_signal):
         
         switching_penalty = sp_w * total_switches
     
-    phase_buffers[ts_id].append(current_phase)
+    traffic_signal.phase_buffer.append(current_phase)
 
     # pedestrian weight
     p_w = 2.0
@@ -61,8 +73,8 @@ def fair_wait_time_reward(traffic_signal):
 def main():
     env = sumo_rl.parallel_env(
         net_file='test-network.net.xml',
-        route_file='vehicles.rou.xml',
-        use_gui=True,
+        route_file='vehs.rou.xml',
+        use_gui=False,
         num_seconds=3600,
         reward_fn=fair_wait_time_reward,
     )
@@ -73,7 +85,7 @@ def main():
     # vectorization of pettingzoo to stable baselines3
     env = ss.pettingzoo_env_to_vec_env_v1(env)
 
-    env = ss.concat_vec_envs_v1(env, num_vec_envs=2, num_cpus=1, base_class='stable_baselines3')
+    env = ss.concat_vec_envs_v1(env, num_vec_envs=1, num_cpus=1, base_class='stable_baselines3')
 
     # initial proximal policy optimization (PPO) model
     alpha = 0.0003
@@ -86,6 +98,8 @@ def main():
     )
 
     model.learn(total_timesteps=100000)
+
+    model.save("traffic_model_2")
 
     env.close()
 
