@@ -1,7 +1,7 @@
 <configuration>
     <input>
         <net-file value="test-network.net.xml"/>
-        <route-files value="vehicles.rou.xml,pedestrians.rou.xml"/>
+        <route-files value="vehs.rou.xml,peds.rou.xml"/>
     </input>
     <time>
         <begin value="0"/>
