@@ -1,25 +1,26 @@
 import os
 import sys
-import time
 import traci
 
-'''
-from gymenv import SumoIntersectionEnv
+import sumo_rl
 
-from stable_baselines3 import DQN
-
-env = SumoIntersectionEnv()
-
-model = DQN("MlpPolicy", env, verbose=1, buffer_size=10000)
-
-model.learn(total_timesteps=100000)
-'''
-
+# check env variables
 if 'SUMO_HOME' in os.environ:
     tools = os.path.join(os.environ['SUMO_HOME'], 'tools')
     sys.path.append(tools)
 else:
     sys.exit("Error: 'SUMO_HOME' env variable is not declared")
+
+
+# create pettingzoo parallel environment for agents
+
+env = sumo_rl.parallel_env(
+    net_file='test-network.net.xml',
+    route_file='vehicles.rou.xml',
+    use_gui=True,
+    num_seconds=3600,
+    #reward_fn=fair_wait_time_reward
+)
 
 
 def run_simulation():
