@@ -1,2 +1,4 @@
 .venv/
-big-network-files/
+models/
+vehs.rou.xml
+peds.rou.xml
