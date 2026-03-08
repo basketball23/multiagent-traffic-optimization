@@ -24,6 +24,7 @@ def fair_wait_time_reward(traffic_signal):
         ts_id = traffic_signal.id
         all_edges = traffic_signal.sumo.edge.getIDList()
 
+        # TODO: This probably doesn't work, so fix
         traffic_signal.pedestrian_edges = [
             e for e in all_edges 
             if e.startswith(f":{ts_id}_w") or e.startswith(f":{ts_id}_c")
@@ -38,13 +39,20 @@ def fair_wait_time_reward(traffic_signal):
     pedestrian_waiting_count = 0
     controlled_lanes = traffic_signal.lanes
 
+    '''
     for lane in controlled_lanes:
 
         allowed_classes = traffic_signal.sumo.lane.getAllowed(lane)
 
+        # TODO: This is broken
+
         if "pedestrian" in allowed_classes:
             pedestrian_waiting_count += traffic_signal.sumo.lane.getLastStepHaltingNumber(lane)
+            print(pedestrian_waiting_count)
+    '''
 
+    for edge in traffic_signal.pedestrian_edges:
+        pedestrian_waiting_count += traffic_signal.sumo.edge.getLastStepPersonIDs(edge)
     
     # switching penalty
     switching_penalty = 0

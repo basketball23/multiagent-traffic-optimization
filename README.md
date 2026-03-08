@@ -1,5 +1,6 @@
 # About:
-- This project attempts to use Multi-Agent Reinforcement Learning (MARL) to minimize joint pedestrian-vehicle waiting times
+- This project attempts to use Multi-Agent Reinforcement Learning (MARL) with centralized training and decentralized execution to minimize joint pedestrian-vehicle waiting times
+- Employing Parameter-Shared MARL with Decentralized Cooperative Agents to Achieve Fair and Efficient Wait Times for Pedestrians and Vehicles
 
 ## Pipeline will go:
 1. SUMO runs simulation step
