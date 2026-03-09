@@ -21,42 +21,25 @@ def fair_wait_time_reward(traffic_signal):
     if not hasattr(traffic_signal, 'phase_buffer') or sim_time < 5.0:
         traffic_signal.phase_buffer = deque(maxlen=BUFFER_SIZE)
 
-        ts_id = traffic_signal.id
         all_edges = traffic_signal.sumo.edge.getIDList()
 
-        traffic_signal.pedestrian_edges = [
-            e for e in all_edges 
-            if '_w' in e
-        ]
+        traffic_signal.pedestrian_edges = [e for e in all_edges if '_w' in e]
 
     current_phase = traffic_signal.green_phase
 
-    # vehicle delay
-    vehicle_delay = traffic_signal.get_total_queued()
+    # vehicle waiting and delay
+    vehicle_waiting_count = traffic_signal.get_total_queued()
+    vehicle_delay = sum(traffic_signal.get_accumulated_waiting_time_per_lane())
 
     # pedestrian delay
     pedestrian_waiting_count = 0
 
-    # this commented out section uses lanes, while we're using edges
-    # also getlaststephaltingnumber is only for vehicles
-    '''
-    controlled_lanes = traffic_signal.lanes
-    for lane in controlled_lanes:
-
-        allowed_classes = traffic_signal.sumo.lane.getAllowed(lane)
-
-        # TODO: This is broken
-
-        if "pedestrian" in allowed_classes:
-            pedestrian_waiting_count += traffic_signal.sumo.lane.getLastStepHaltingNumber(lane)
-            print(pedestrian_waiting_count)
-    '''
-
     # TODO: this gets you ids, now need to fetch their waiting times
-
     for edge in traffic_signal.pedestrian_edges:
-        pedestrian_waiting_count += traffic_signal.sumo.edge.getLastStepPersonIDs(edge)
+        pedestrian_waiting_count += len(traffic_signal.sumo.edge.getLastStepPersonIDs(edge))
     
+    emissions_count = traffic_signal.get_total_co2()
+
     # switching penalty
     switching_penalty = 0
     # switching penalty weight
@@ -79,7 +62,7 @@ def fair_wait_time_reward(traffic_signal):
     # pedestrian weight
     p_w = 2.0
 
-    reward = -((v_w * vehicle_delay) + (p_w * pedestrian_waiting_count) + switching_penalty)
+    reward = -(vehicle_waiting_count + (v_w * vehicle_delay) + (p_w * pedestrian_waiting_count) + switching_penalty)
 
     return reward
 
@@ -87,11 +70,14 @@ def main():
     env = sumo_rl.parallel_env(
         net_file='test-network.net.xml',
         route_file='vehs.rou.xml',
-        use_gui=False,
-        num_seconds=3600,
+        out_csv_name='results.csv',
+        use_gui=True,
+        num_seconds=20000,
         reward_fn=fair_wait_time_reward,
+        sumo_seed=42
     )
 
+    # used to make compatible
     env.unwrapped.render_mode = None
 
 
