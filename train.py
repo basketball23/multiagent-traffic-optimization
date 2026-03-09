@@ -24,10 +24,9 @@ def fair_wait_time_reward(traffic_signal):
         ts_id = traffic_signal.id
         all_edges = traffic_signal.sumo.edge.getIDList()
 
-        # TODO: This probably doesn't work, so fix
         traffic_signal.pedestrian_edges = [
             e for e in all_edges 
-            if e.startswith(f":{ts_id}_w") or e.startswith(f":{ts_id}_c")
+            if '_w' in e
         ]
 
     current_phase = traffic_signal.green_phase
@@ -37,9 +36,11 @@ def fair_wait_time_reward(traffic_signal):
 
     # pedestrian delay
     pedestrian_waiting_count = 0
-    controlled_lanes = traffic_signal.lanes
 
+    # this commented out section uses lanes, while we're using edges
+    # also getlaststephaltingnumber is only for vehicles
     '''
+    controlled_lanes = traffic_signal.lanes
     for lane in controlled_lanes:
 
         allowed_classes = traffic_signal.sumo.lane.getAllowed(lane)
@@ -50,6 +51,8 @@ def fair_wait_time_reward(traffic_signal):
             pedestrian_waiting_count += traffic_signal.sumo.lane.getLastStepHaltingNumber(lane)
             print(pedestrian_waiting_count)
     '''
+
+    # TODO: this gets you ids, now need to fetch their waiting times
 
     for edge in traffic_signal.pedestrian_edges:
         pedestrian_waiting_count += traffic_signal.sumo.edge.getLastStepPersonIDs(edge)
@@ -71,10 +74,12 @@ def fair_wait_time_reward(traffic_signal):
     
     traffic_signal.phase_buffer.append(current_phase)
 
+    # vehicle weight
+    v_w = 2.0
     # pedestrian weight
     p_w = 2.0
 
-    reward = -(vehicle_delay + (p_w * pedestrian_waiting_count) + switching_penalty)
+    reward = -((v_w * vehicle_delay) + (p_w * pedestrian_waiting_count) + switching_penalty)
 
     return reward
 
