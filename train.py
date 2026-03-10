@@ -26,7 +26,7 @@ NEIGHBORS_DICT = {
 
 # saving model mid-training
 
-save_dir = "./models"
+save_dir = "./models1"
 os.makedirs(save_dir, exist_ok=True)
 
 checkpoint_callback = CheckpointCallback(
@@ -156,8 +156,8 @@ def fair_wait_time_reward(traffic_signal):
     p_w = 2.0
 
 
-    veh_waiting_norm = vehicle_waiting_count / 100
-    veh_delay_norm = vehicle_delay / 500
+    veh_waiting_norm = vehicle_waiting_count / 10
+    veh_delay_norm = vehicle_delay / 250
     ped_wait_norm = pedestrian_waiting_count / 10
     switch_pen_norm = switching_penalty / BUFFER_SIZE
 
