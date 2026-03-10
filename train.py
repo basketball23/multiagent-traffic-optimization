@@ -2,18 +2,85 @@ import sumo_rl
 import supersuit as ss
 
 from stable_baselines3 import PPO
-from stable_baselines3.common.callbacks import EvalCallback
+from gymnasium.spaces import Box
+from sumo_rl.environment.observations import ObservationFunction
 
 import traci
 from collections import deque
+import numpy as np
 
 # deque to keep track of previous traffic states to prevent rapid switching
 # dictionary of deques for each intersection
 BUFFER_SIZE = 10
 
+# TODO: update with actual traffic signal neighbors
+NEIGHBORS_DICT = {
+    'intersection1': ['intersection2', 'intersection3']
+}
+
+class NeighborObservation(ObservationFunction):
+    '''
+    custom observation function to include observation states of neighboring intersection queue data
+    to local intersections' observation state.
+
+    goal is to make agents cooperative in this way
+    '''
+    def __init__(self, traffic_signal):
+        '''
+        initialize default observation function
+        '''
+        super().__init__(traffic_signal)
+        self.ts = traffic_signal
+
+        # add neighboring traffic signals
+        self.neighbors = NEIGHBORS_DICT.get(self.ts.id, [])
+
+    def __call__(self):
+        '''
+        fetch observation states
+
+        everything taken from original observation function up until neighbor_id
+        '''
+        phase_id = [1 if self.ts.green_phase == i else 0 for i in range(self.ts.num_green_phases)]  # one-hot encoding
+        min_green = [0 if self.ts.time_since_last_phase_change < self.ts.min_green + self.ts.yellow_time else 1]
+        density = self.ts.get_lanes_density()
+        queue = self.ts.get_lanes_queue()
+
+        obs = phase_id + min_green + density + queue
+
+        for neighbor_id in self.neighbors:
+            if neighbor_id in self.ts.env.traffic_signals:
+                neighbor_ts = self.ts.env.traffic_signals[neighbor_id]
+                obs.extend(neighbor_ts.get_lanes_queue()) # appending neighbor state to obs space
+
+        obs = np.array(obs, dtype=np.float32)
+        return obs
+
+    def observation_space(self):
+        '''
+        return the observation space
+        '''
+        local_len = self.ts.num_green_phases + (2 * len(self.ts.lanes))
+
+        neighbor_len = 0
+        for neighbor_id in self.neighbors:
+            if neighbor_id in self.ts.env.traffic_signals:
+                neighbor_ts = self.ts.env.traffic_signals[neighbor_id]
+                neighbor_len += len(neighbor_ts.lanes)
+        
+        total_len = local_len + neighbor_len
+
+        return Box(low=0.0, high=1.0, shape=(total_len,), dtype=np.float32)
+    
+
 def fair_wait_time_reward(traffic_signal):
     '''
     custom reward function to balance vehicles, pedestrians, and signal frequency switching
+
+    vars:
+    vehicle_delay
+    pedestrain_waiting_count
+    switching_penalty
     '''
 
     sim_time = traffic_signal.sumo.simulation.getTime()
@@ -38,7 +105,7 @@ def fair_wait_time_reward(traffic_signal):
     for edge in traffic_signal.pedestrian_edges:
         pedestrian_waiting_count += len(traffic_signal.sumo.edge.getLastStepPersonIDs(edge))
     
-    emissions_count = traffic_signal.get_total_co2()
+    #emissions_count = traffic_signal.get_total_co2()
 
     # switching penalty
     switching_penalty = 0
@@ -67,11 +134,19 @@ def fair_wait_time_reward(traffic_signal):
     return reward
 
 def main():
+    '''
+    1. initializes agent environment
+    2. vectorizes to compatable with stable_baselines3
+    3. PPO model initialization and training
+    4. saves model
+    '''
+
+
     env = sumo_rl.parallel_env(
-        net_file='test-network.net.xml',
-        route_file='vehs.rou.xml',
-        out_csv_name='results.csv',
-        use_gui=True,
+        net_file='grid-network.net.xml',
+        route_file='vehs.rou.xml,peds.rou.xml',
+        out_csv_name='results',
+        use_gui=False,
         num_seconds=20000,
         reward_fn=fair_wait_time_reward,
         sumo_seed=42
