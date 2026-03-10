@@ -113,9 +113,7 @@ def fair_wait_time_reward(traffic_signal):
     switching_penalty
     '''
 
-    sim_time = traffic_signal.sumo.simulation.getTime()
-
-    if not hasattr(traffic_signal, 'phase_buffer') or sim_time < 5.0:
+    if not hasattr(traffic_signal, 'phase_buffer'):
         traffic_signal.phase_buffer = deque(maxlen=BUFFER_SIZE)
 
         all_edges = traffic_signal.sumo.edge.getIDList()
@@ -134,32 +132,39 @@ def fair_wait_time_reward(traffic_signal):
     # TODO: this gets you ids, now need to fetch their waiting times
     for edge in traffic_signal.pedestrian_edges:
         pedestrian_waiting_count += len(traffic_signal.sumo.edge.getLastStepPersonIDs(edge))
-    
-    #emissions_count = traffic_signal.get_total_co2()
 
     # switching penalty
     switching_penalty = 0
     # switching penalty weight
-    sp_w = 5.0
+    sp_w = 0.8
 
     if len(traffic_signal.phase_buffer) > 1:
         total_switches = 0
         history = list(traffic_signal.phase_buffer)
+
+        traffic_signal.phase_buffer.append(current_phase)
 
         for i in range(1, len(history)):
             if history[i] != history[i-1]:
                 total_switches += 1
         
         switching_penalty = sp_w * total_switches
-    
-    traffic_signal.phase_buffer.append(current_phase)
 
     # vehicle weight
     v_w = 2.0
     # pedestrian weight
     p_w = 2.0
 
-    reward = -(vehicle_waiting_count + (v_w * vehicle_delay) + (p_w * pedestrian_waiting_count) + switching_penalty)
+
+    veh_waiting_norm = vehicle_waiting_count / 100
+    veh_delay_norm = vehicle_delay / 500
+    ped_wait_norm = pedestrian_waiting_count / 10
+    switch_pen_norm = switching_penalty / BUFFER_SIZE
+
+    # TODO: Incorporate fairness (variance(wait_times) or max_wait_time)
+
+    reward = -(veh_waiting_norm + (v_w * veh_delay_norm) + (p_w * ped_wait_norm) + switch_pen_norm)
+    reward = np.tanh(reward)
 
     return reward
 
@@ -203,12 +208,12 @@ def main():
         verbose=3,
         learning_rate=alpha,
         gamma=0.95,
-        device='mps'
+        #device='mps'
     )
 
-    model.learn(total_timesteps=1000000, callback=checkpoint_callback)
+    model.learn(total_timesteps=10000000, callback=checkpoint_callback)
 
-    model.save("traffic_model_2")
+    model.save("traffic_model")
 
     env.close()
 
