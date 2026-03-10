@@ -2,12 +2,15 @@ import sumo_rl
 import supersuit as ss
 
 from stable_baselines3 import PPO
+from stable_baselines3.common.callbacks import CheckpointCallback
+
 from gymnasium.spaces import Box
 from sumo_rl.environment.observations import ObservationFunction
 
 import traci
 from collections import deque
 import numpy as np
+import os
 
 # deque to keep track of previous traffic states to prevent rapid switching
 # dictionary of deques for each intersection
@@ -15,8 +18,23 @@ BUFFER_SIZE = 10
 
 # TODO: update with actual traffic signal neighbors
 NEIGHBORS_DICT = {
-    'intersection1': ['intersection2', 'intersection3']
+    'B1': ['B2', 'C1'],
+    'B2': ['B1', 'C2'],
+    'C1': ['B1', 'C2'],
+    'C2': ['C1', 'B2'],
 }
+
+# saving model mid-training
+
+save_dir = "./models"
+os.makedirs(save_dir, exist_ok=True)
+
+checkpoint_callback = CheckpointCallback(
+    save_freq=50000,
+    save_path=save_dir,
+    name_prefix="ppo_model"
+)
+
 
 class NeighborObservation(ObservationFunction):
     '''
@@ -35,6 +53,16 @@ class NeighborObservation(ObservationFunction):
         # add neighboring traffic signals
         self.neighbors = NEIGHBORS_DICT.get(self.ts.id, [])
 
+        self.neighbor_lanes = {}
+        self.neighbor_lanes_lengths = {}
+
+        for neighbor_id in self.neighbors:
+            lanes = list(dict.fromkeys(self.ts.sumo.trafficlight.getControlledLanes(neighbor_id)))
+            self.neighbor_lanes[neighbor_id] = lanes
+
+            for lane in lanes:
+                self.neighbor_lanes_lengths[lane] = self.ts.sumo.lane.getLength(lane)
+
     def __call__(self):
         '''
         fetch observation states
@@ -49,9 +77,13 @@ class NeighborObservation(ObservationFunction):
         obs = phase_id + min_green + density + queue
 
         for neighbor_id in self.neighbors:
-            if neighbor_id in self.ts.env.traffic_signals:
-                neighbor_ts = self.ts.env.traffic_signals[neighbor_id]
-                obs.extend(neighbor_ts.get_lanes_queue()) # appending neighbor state to obs space
+            for lane in self.neighbor_lanes[neighbor_id]:
+                halting = self.ts.sumo.lane.getLastStepHaltingNumber(lane)
+                length = self.neighbor_lanes_lengths[lane]
+
+                normalized_queue = halting / (length / 5.0)
+
+                obs.append(min(1.0, normalized_queue))
 
         obs = np.array(obs, dtype=np.float32)
         return obs
@@ -60,13 +92,11 @@ class NeighborObservation(ObservationFunction):
         '''
         return the observation space
         '''
-        local_len = self.ts.num_green_phases + (2 * len(self.ts.lanes))
+        local_len = self.ts.num_green_phases + (2 * len(self.ts.lanes)) + 1
 
         neighbor_len = 0
         for neighbor_id in self.neighbors:
-            if neighbor_id in self.ts.env.traffic_signals:
-                neighbor_ts = self.ts.env.traffic_signals[neighbor_id]
-                neighbor_len += len(neighbor_ts.lanes)
+            neighbor_len += len(self.neighbor_lanes[neighbor_id])
         
         total_len = local_len + neighbor_len
 
@@ -141,7 +171,7 @@ def main():
     4. saves model
     '''
 
-
+    # creating multi-agent environment
     env = sumo_rl.parallel_env(
         net_file='grid-network.net.xml',
         route_file='vehs.rou.xml,peds.rou.xml',
@@ -149,12 +179,16 @@ def main():
         use_gui=False,
         num_seconds=20000,
         reward_fn=fair_wait_time_reward,
+        observation_class=NeighborObservation,
         sumo_seed=42
     )
 
     # used to make compatible
     env.unwrapped.render_mode = None
 
+    # padding to observation space necessary,
+    # because not all traffic signals will have same number of neighbors
+    env = ss.pad_observations_v0(env)
 
     # vectorization of pettingzoo to stable baselines3
     env = ss.pettingzoo_env_to_vec_env_v1(env)
@@ -168,10 +202,11 @@ def main():
         env=env,
         verbose=3,
         learning_rate=alpha,
-        gamma=0.95
+        gamma=0.95,
+        device='mps'
     )
 
-    model.learn(total_timesteps=100000)
+    model.learn(total_timesteps=1000000, callback=checkpoint_callback)
 
     model.save("traffic_model_2")
 
