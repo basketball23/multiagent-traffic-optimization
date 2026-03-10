@@ -1,10 +1,10 @@
 <configuration>
     <input>
-        <net-file value="test-network.net.xml"/>
+        <net-file value="grid-network.net.xml"/>
         <route-files value="vehs.rou.xml,peds.rou.xml"/>
     </input>
     <time>
         <begin value="0"/>
-        <end value="5000"/>
+        <end value="20000"/>
     </time>
 </configuration>
