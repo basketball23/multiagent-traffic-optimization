@@ -135,10 +135,17 @@ def fair_wait_time_reward(traffic_signal):
         
     traffic_signal.phase_buffer.append(current_phase)
 
+
+    avg_veh_wait = vehicle_delay / vehicle_waiting_count if vehicle_waiting_count > 0 else 0
+    avg_ped_wait = pedestrian_delay / pedestrian_waiting_count if pedestrian_waiting_count > 0 else 0
+
+    mode_equity = abs(avg_veh_wait - avg_ped_wait)
+
     # weights
-    v_w = 2.0
-    p_w = 2.0
-    f_w = 1.5
+    v_w = 2.0 # vehicle waiting time
+    p_w = 2.0 # pedestrian waiting time weight
+    f_w = 1.5 # fairness for max waiting time
+    e_w = 1.0 # equity from vehs to peds weight
 
 
     veh_waiting_norm = vehicle_waiting_count / 10.0
@@ -150,6 +157,7 @@ def fair_wait_time_reward(traffic_signal):
     fairness_norm = max_lane_wait_time / 100.0
 
     switch_pen_norm = switching_penalty
+    equity_norm = mode_equity / 50.0
 
 
     reward = -(veh_waiting_norm + 
@@ -157,6 +165,7 @@ def fair_wait_time_reward(traffic_signal):
                (v_w * veh_delay_norm) + 
                (p_w * ped_wait_norm) + 
                (f_w * fairness_norm) +
+               (e_w * equity_norm) +
                switch_pen_norm)
 
     return reward
