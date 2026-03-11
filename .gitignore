@@ -1,2 +1,7 @@
 .venv/
-models/
+
+__pycache__/
+
+data/
+data1/
+data2/
