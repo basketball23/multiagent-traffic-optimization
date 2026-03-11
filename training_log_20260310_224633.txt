@@ -15,3 +15,19 @@ Warning: Person '2571' is jammed on edge ':B1_c0', time=7795.00.
 Step #7800.00 (0ms ?*RT. ?UPS, TraCI: 43ms, vehicles TOT 3345 ACT 175 BUF 556)            Step #7900.00 (0ms ?*RT. ?UPS, TraCI: 41ms, vehicles TOT 3346 ACT 176 BUF 605)            Step #8000.00 (1ms ~= 1000.00*RT, ~177000.00UPS, TraCI: 41ms, vehicles TOT 3347 ACT 177 BUStep #8100.00 (0ms ?*RT. ?UPS, TraCI: 40ms, vehicles TOT 3348 ACT 178 BUF 703)            Step #8200.00 (1ms ~= 1000.00*RT, ~179000.00UPS, TraCI: 40ms, vehicles TOT 3349 ACT 179 BUWarning: Person '2740' is jammed on edge ':C1_c3', time=8279.00.
 Step #8300.00 (0ms ?*RT. ?UPS, TraCI: 43ms, vehicles TOT 3350 ACT 180 BUF 801)            Step #8400.00 (1ms ~= 1000.00*RT, ~181000.00UPS, TraCI: 41ms, vehicles TOT 3351 ACT 181 BUWarning: Person '2760' is jammed on edge ':B1_c0', time=8401.00.
 Step #8500.00 (0ms ?*RT. ?UPS, TraCI: 41ms, vehicles TOT 3353 ACT 183 BUF 898)            Step #8600.00 (1ms ~= 1000.00*RT, ~185000.00UPS, TraCI: 42ms, vehicles TOT 3355 ACT 185 BUStep #8700.00 (0ms ?*RT. ?UPS, TraCI: 42ms, vehicles TOT 3356 ACT 186 BUF 995)            Step #8800.00 (1ms ~= 1000.00*RT, ~186000.00UPS, TraCI: 43ms, vehicles TOT 3356 ACT 186 BUStep #8900.00 (1ms ~= 1000.00*RT, ~186000.00UPS, TraCI: 40ms, vehicles TOT 3356 ACT 186 BUStep #9000.00 (0ms ?*RT. ?UPS, TraCI: 41ms, vehicles TOT 3356 ACT 186 BUF 1145)           Warning: Person '2917' is jammed on edge ':C1_c3', time=9049.00.
+Step #9100.00 (0ms ?*RT. ?UPS, TraCI: 42ms, vehicles TOT 3356 ACT 186 BUF 1195)           Step #9200.00 (0ms ?*RT. ?UPS, TraCI: 41ms, vehicles TOT 3356 ACT 186 BUF 1245)           Step #9300.00 (1ms ~= 1000.00*RT, ~186000.00UPS, TraCI: 40ms, vehicles TOT 3356 ACT 186 BUStep #9400.00 (1ms ~= 1000.00*RT, ~186000.00UPS, TraCI: 37ms, vehicles TOT 3356 ACT 186 BUStep #9500.00 (1ms ~= 1000.00*RT, ~186000.00UPS, TraCI: 41ms, vehicles TOT 3356 ACT 186 BUStep #9600.00 (1ms ~= 1000.00*RT, ~186000.00UPS, TraCI: 47ms, vehicles TOT 3356 ACT 186 BUWarning: Person '3133' is jammed on edge ':C1_c3', time=9615.00.
+Warning: Person '3161' is jammed on edge ':C1_c3', time=9615.00.
+Step #9700.00 (1ms ~= 1000.00*RT, ~186000.00UPS, TraCI: 41ms, vehicles TOT 3356 ACT 186 BUStep #9800.00 (1ms ~= 1000.00*RT, ~186000.00UPS, TraCI: 40ms, vehicles TOT 3356 ACT 186 BUWarning: Person '3264' is jammed on edge ':B1_c0', time=9890.00.
+Step #9900.00 (1ms ~= 1000.00*RT, ~186000.00UPS, TraCI: 40ms, vehicles TOT 3356 ACT 186 BUStep #10000.00 (1ms ~= 1000.00*RT, ~186000.00UPS, TraCI: 50ms, vehicles TOT 3356 ACT 186 BWarning: Person '3354' is jammed on edge ':C1_c3', time=10077.00.
+Step #10100.00 (1ms ~= 1000.00*RT, ~186000.00UPS, TraCI: 41ms, vehicles TOT 3356 ACT 186 BStep #10200.00 (0ms ?*RT. ?UPS, TraCI: 42ms, vehicles TOT 3356 ACT 186 BUF 1745)          Warning: Person '3393' is jammed on edge ':C1_c3', time=10204.00.
+ Retrying in 1 seconds
+ Retrying in 1 seconds
+Using cpu device
+ Retrying in 1 seconds
+-----------------------------
+| time/              |      |
+|    fps             | 140  |
+|    iterations      | 1    |
+|    time_elapsed    | 58   |
+|    total_timesteps | 8192 |
+-----------------------------
