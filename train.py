@@ -40,8 +40,8 @@ def main():
 
     # creating multi-agent environment
     env = sumo_rl.parallel_env(
-        net_file='grid-network.net.xml',
-        route_file='vehs.rou.xml,peds.rou.xml',
+        net_file='simulation/grid-network.net.xml',
+        route_file='simulation/vehs.rou.xml,simulation/peds.rou.xml',
         out_csv_name='results',
         use_gui=False,
         num_seconds=20000,
