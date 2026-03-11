@@ -3,7 +3,7 @@ import supersuit as ss
 
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import CheckpointCallback
-from stable_baselines3.common.vec_env import VecMonitor
+from stable_baselines3.common.vec_env import VecMonitor, VecNormalize
 
 from utils import NeighborObservation, fair_wait_time_reward
 import os
@@ -21,7 +21,7 @@ NEIGHBORS_DICT = {
 
 # saving model mid-training
 
-save_dir = "./models4"
+save_dir = "./models6"
 os.makedirs(save_dir, exist_ok=True)
 
 checkpoint_callback = CheckpointCallback(
@@ -63,6 +63,8 @@ def main():
 
     env = ss.concat_vec_envs_v1(env, num_vec_envs=1, num_cpus=1, base_class='stable_baselines3')
 
+    env = VecNormalize(env, norm_obs=True, norm_reward=False)
+
     env = VecMonitor(env)
 
     # initial proximal policy optimization (PPO) model
@@ -74,7 +76,7 @@ def main():
         learning_rate=alpha,
         gamma=0.95,
         tensorboard_log="./ppo_tensorboard/",
-        #ent_coef=0.01,
+        ent_coef=0.05,
     )
 
     model.learn(total_timesteps=10000000, callback=checkpoint_callback)
