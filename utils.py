@@ -102,14 +102,23 @@ def fair_wait_time_reward(traffic_signal):
 
     # vehicle waiting and delay
     vehicle_waiting_count = traffic_signal.get_total_queued()
-    vehicle_delay = sum(traffic_signal.get_accumulated_waiting_time_per_lane())
+    lane_wait_times = traffic_signal.get_accumulated_waiting_time_per_lane()
+
+    vehicle_delay = sum(lane_wait_times)
+    max_lane_wait_time = max(lane_wait_times) if len(lane_wait_times) > 0 else 0
+
 
     # pedestrian delay
     pedestrian_waiting_count = 0
+    pedestrian_delay = 0
 
-    # TODO: this gets you ids, now need to fetch their waiting times
+
     for edge in traffic_signal.pedestrian_edges:
-        pedestrian_waiting_count += len(traffic_signal.sumo.edge.getLastStepPersonIDs(edge))
+        pedestrian_ids = traffic_signal.sumo.edge.getLastStepPersonIDs(edge)
+        pedestrian_waiting_count += len(pedestrian_ids)
+
+        for p_id in pedestrian_ids:
+            pedestrian_delay += traffic_signal.sumo.person.getWaitingTime(p_id)
 
     # switching penalty
     switching_penalty = 0
@@ -126,21 +135,28 @@ def fair_wait_time_reward(traffic_signal):
         
     traffic_signal.phase_buffer.append(current_phase)
 
-    # vehicle weight
+    # weights
     v_w = 2.0
-    # pedestrian weight
     p_w = 2.0
+    f_w = 1.5
 
 
-    veh_waiting_norm = vehicle_waiting_count / 10
-    veh_delay_norm = vehicle_delay / 250
-    ped_wait_norm = pedestrian_waiting_count / 10
+    veh_waiting_norm = vehicle_waiting_count / 10.0
+    ped_wait_norm = pedestrian_waiting_count / 10.0
+
+    veh_delay_norm = vehicle_delay / 250.0
+    ped_delay_norm = pedestrian_delay / 250.0
+
+    fairness_norm = max_lane_wait_time / 100.0
+
     switch_pen_norm = switching_penalty
 
-    # TODO: Incorporate fairness (variance(wait_times) or max_wait_time)
 
-    # TODO: MAY NEED TO PUNISH SWITCHING PENALTY MORE
-
-    reward = -(veh_waiting_norm + (v_w * veh_delay_norm) + (p_w * ped_wait_norm) + switch_pen_norm)
+    reward = -(veh_waiting_norm + 
+               ped_delay_norm + 
+               (v_w * veh_delay_norm) + 
+               (p_w * ped_wait_norm) + 
+               (f_w * fairness_norm) +
+               switch_pen_norm)
 
     return reward
