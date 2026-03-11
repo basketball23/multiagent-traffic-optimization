@@ -70,7 +70,7 @@ def main():
         verbose=3,
         learning_rate=alpha,
         gamma=0.95,
-        #device='mps'
+        ent_coef=0.01,
     )
 
     model.learn(total_timesteps=10000000, callback=checkpoint_callback)

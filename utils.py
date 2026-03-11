@@ -116,17 +116,15 @@ def fair_wait_time_reward(traffic_signal):
     # switching penalty weight
     sp_w = 0.8
 
-    if len(traffic_signal.phase_buffer) > 1:
-        total_switches = 0
-        history = list(traffic_signal.phase_buffer)
+    if len(traffic_signal.phase_buffer) > 0:
 
-        traffic_signal.phase_buffer.append(current_phase)
+        # switching penalty only compares to previous state to prevent "credit assignment problem"
+        previous_phase = traffic_signal.phase_buffer[-1]
 
-        for i in range(1, len(history)):
-            if history[i] != history[i-1]:
-                total_switches += 1
+        if current_phase != previous_phase:
+            switching_penalty = sp_w
         
-        switching_penalty = sp_w * total_switches
+    traffic_signal.phase_buffer.append(current_phase)
 
     # vehicle weight
     v_w = 2.0
@@ -137,13 +135,12 @@ def fair_wait_time_reward(traffic_signal):
     veh_waiting_norm = vehicle_waiting_count / 10
     veh_delay_norm = vehicle_delay / 250
     ped_wait_norm = pedestrian_waiting_count / 10
-    switch_pen_norm = switching_penalty / BUFFER_SIZE
+    switch_pen_norm = switching_penalty
 
     # TODO: Incorporate fairness (variance(wait_times) or max_wait_time)
 
     # TODO: MAY NEED TO PUNISH SWITCHING PENALTY MORE
 
     reward = -(veh_waiting_norm + (v_w * veh_delay_norm) + (p_w * ped_wait_norm) + switch_pen_norm)
-    reward = np.tanh(reward)
 
     return reward
