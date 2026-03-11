@@ -98,20 +98,37 @@ def fair_wait_time_reward(traffic_signal):
 
         traffic_signal.pedestrian_edges = [e for e in all_edges if '_w' in e]
 
+    if not hasattr(traffic_signal, 'prev_vehicle_wait'):
+        traffic_signal.prev_vehicle_wait = deque(maxlen=1)
+    if not hasattr(traffic_signal, 'prev_pedestrian_wait'):
+        traffic_signal.prev_pedestrian_wait = deque(maxlen=1)
+
     current_phase = traffic_signal.green_phase
 
-    # vehicle waiting and delay
-    vehicle_waiting_count = traffic_signal.get_total_queued()
+    '''vehicle waiting and delay'''
+
     lane_wait_times = traffic_signal.get_accumulated_waiting_time_per_lane()
 
-    vehicle_delay = sum(lane_wait_times)
     max_lane_wait_time = max(lane_wait_times) if len(lane_wait_times) > 0 else 0
 
+    vehicle_waiting_count = traffic_signal.get_total_queued()
+    vehicle_delay = sum(lane_wait_times)
+    vehicle_delay_delta = 0
 
-    # pedestrian delay
+    if len(traffic_signal.prev_vehicle_wait) > 0:
+
+        # switching penalty only compares to previous state to prevent "credit assignment problem"
+        previous_veh_delay = traffic_signal.prev_vehicle_wait[-1]
+        vehicle_delay_delta = previous_veh_delay - vehicle_delay
+        
+    traffic_signal.prev_vehicle_wait.append(vehicle_delay)
+
+
+    '''pedestrian delay'''
+
     pedestrian_waiting_count = 0
     pedestrian_delay = 0
-
+    pedestrian_delay_delta = 0
 
     for edge in traffic_signal.pedestrian_edges:
         pedestrian_ids = traffic_signal.sumo.edge.getLastStepPersonIDs(edge)
@@ -120,7 +137,15 @@ def fair_wait_time_reward(traffic_signal):
         for p_id in pedestrian_ids:
             pedestrian_delay += traffic_signal.sumo.person.getWaitingTime(p_id)
 
-    # switching penalty
+    if len(traffic_signal.prev_pedestrian_wait) > 0:
+        # switching penalty only compares to previous state to prevent "credit assignment problem"
+        previous_ped_delay = traffic_signal.prev_pedestrian_wait[-1]
+        pedestrian_delay_delta = previous_ped_delay - pedestrian_delay
+        
+    traffic_signal.prev_pedestrian_wait.append(pedestrian_delay)
+
+    '''switching penalty'''
+
     switching_penalty = 0
     # switching penalty weight
     sp_w = 0.8
@@ -143,29 +168,22 @@ def fair_wait_time_reward(traffic_signal):
 
     # weights
     v_w = 2.0 # vehicle waiting time
-    p_w = 2.0 # pedestrian waiting time weight
     f_w = 1.5 # fairness for max waiting time
     e_w = 1.0 # equity from vehs to peds weight
 
-
-    veh_waiting_norm = vehicle_waiting_count / 10.0
-    ped_wait_norm = pedestrian_waiting_count / 10.0
-
-    veh_delay_norm = vehicle_delay / 250.0
-    ped_delay_norm = pedestrian_delay / 250.0
+    veh_delay_norm = vehicle_delay_delta / 10.0
+    ped_delay_norm = pedestrian_delay_delta / 10.0
 
     fairness_norm = max_lane_wait_time / 100.0
 
     switch_pen_norm = switching_penalty
-    equity_norm = mode_equity / 50.0
+    equity_norm = min(mode_equity / 10.0, 5)
 
 
-    reward = -(veh_waiting_norm + 
-               ped_delay_norm + 
-               (v_w * veh_delay_norm) + 
-               (p_w * ped_wait_norm) + 
-               (f_w * fairness_norm) +
-               (e_w * equity_norm) +
+    reward = (ped_delay_norm + 
+               (v_w * veh_delay_norm) - 
+               (f_w * fairness_norm) -
+               (e_w * equity_norm) -
                switch_pen_norm)
 
     return reward
