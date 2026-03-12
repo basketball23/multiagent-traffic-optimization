@@ -16,30 +16,24 @@ NEIGHBORS_DICT = {
 
 class NeighborObservation(ObservationFunction):
     '''
-    custom observation function to include observation states of neighboring intersection queue data
-    to local intersections' observation state.
-
-    goal is to make agents cooperative in this way
+    Custom observation function to include observation states of neighboring intersection 
+    queue data and phase states to local intersections' observation state.
     '''
     def __init__(self, traffic_signal):
-        '''
-        initialize default observation function
-        '''
         super().__init__(traffic_signal)
         self.ts = traffic_signal
 
-        # add neighboring traffic signals
         self.neighbors = NEIGHBORS_DICT.get(self.ts.id, [])
 
         self._setup_done = False
         self.neighbor_lanes = {}
         self.neighbor_lanes_lengths = {}
-
+        self.neighbor_num_green_phases = {}
 
     def _setup(self):
         '''
-        filters neighboring lanes to only include those that feed traffic
-        toward the local intersection.
+        Filters neighboring lanes to only include those that feed traffic
+        toward the local intersection, and dynamically counts neighbor green phases.
         '''
         if self._setup_done:
             return
@@ -48,6 +42,10 @@ class NeighborObservation(ObservationFunction):
         local_incoming_edges = set([self.ts.sumo.lane.getEdgeID(lane) for lane in local_incoming_lanes])
 
         for neighbor_id in self.neighbors:
+            phases = self.ts.sumo.trafficlight.getCompleteRedYellowGreenDefinition(neighbor_id)[0].phases
+            green_phases = [p for p in phases if "y" not in p.state and "r" not in p.state]
+            self.neighbor_num_green_phases[neighbor_id] = len(green_phases)
+
             all_neighbor_lanes = list(dict.fromkeys(self.ts.sumo.trafficlight.getControlledLanes(neighbor_id)))
             
             feeding_lanes = []
@@ -85,6 +83,12 @@ class NeighborObservation(ObservationFunction):
         obs = phase_id + min_green + density + queue
 
         for neighbor_id in self.neighbors:
+            neighbor_ts = self.ts.env.traffic_signals[neighbor_id]
+            num_phases = self.neighbor_num_green_phases[neighbor_id]
+
+            neighbor_phase = [1 if neighbor_ts.green_phase == i else 0 for i in range(num_phases)]
+            obs.extend(neighbor_phase)
+
             for lane in self.neighbor_lanes[neighbor_id]:
                 halting = self.ts.sumo.lane.getLastStepHaltingNumber(lane)
                 length = self.neighbor_lanes_lengths[lane]
@@ -97,13 +101,16 @@ class NeighborObservation(ObservationFunction):
 
     def observation_space(self):
         '''
-        return the dynamically sized observation space
+        Return the dynamically sized observation space
         '''
-        self._setup() # Ensure lanes are mapped so we know the correct array length
+        self._setup()
         
         local_len = self.ts.num_green_phases + (2 * len(self.ts.lanes)) + 1
         
-        neighbor_len = sum(len(lanes) for lanes in self.neighbor_lanes.values())
+        neighbor_len = 0
+        for neighbor_id in self.neighbors:
+            neighbor_len += len(self.neighbor_lanes[neighbor_id])
+            neighbor_len += self.neighbor_num_green_phases[neighbor_id]
         
         total_len = local_len + neighbor_len
 
@@ -127,8 +134,8 @@ def fair_wait_time_reward(traffic_signal):
         traffic_signal.phase_buffer = deque(maxlen=BUFFER_SIZE)
 
         all_edges = traffic_signal.sumo.edge.getIDList()
-        incoming_edges = traffic_signal.edges
-        
+        incoming_edges = set([traffic_signal.sumo.lane.getEdgeID(lane) for lane in traffic_signal.lanes])
+
         local_ped_edges = []
         for e in all_edges:
             if '_w' in e:
