@@ -3,31 +3,10 @@ import sys
 import traci
 import csv
 
+from utils import get_intersection_metrics
+
 MIN_GREEN_TIME = 15      
-QUEUE_THRESHOLD = 3      
-
-def get_intersection_metrics(tl_id):
-    """Helper function to extract wait times and counts for an intersection."""
-    veh_wait_count = 0
-    veh_wait_time = 0
-    ped_wait_count = 0
-    ped_wait_time = 0
-
-    lanes = set(traci.trafficlight.getControlledLanes(tl_id))
-    
-    for lane in lanes:
-        edge_id = traci.lane.getEdgeID(lane)
-        if "_w" in edge_id:
-            pedestrian_ids = traci.edge.getLastStepPersonIDs(edge_id)
-            ped_wait_count += len(pedestrian_ids)
-
-            for p_id in pedestrian_ids:
-                ped_wait_time += traci.person.getWaitingTime(p_id)
-        else:
-            veh_wait_count += traci.lane.getLastStepHaltingNumber(lane)
-            veh_wait_time += traci.lane.getWaitingTime(lane)
-            
-    return veh_wait_count, veh_wait_time, ped_wait_count, ped_wait_time
+QUEUE_THRESHOLD = 3
 
 def run_multi_rule_based():
     sumoCmd = ["sumo", "-c", "simulation/sim.sumocfg"]

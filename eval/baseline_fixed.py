@@ -3,33 +3,7 @@ import sys
 import traci
 import csv
 
-def get_intersection_metrics(tl_id):
-    """
-    helper function to extract wait times and counts for an intersection.
-    """
-
-    veh_wait_count = 0
-    veh_wait_time = 0
-    ped_wait_count = 0
-    ped_wait_time = 0
-
-    lanes = set(traci.trafficlight.getControlledLanes(tl_id))
-
-    for lane in lanes:
-        edge_id = traci.lane.getEdgeID(lane)
-        
-        if "_w" in edge_id:
-            pedestrian_ids = traci.edge.getLastStepPersonIDs(edge_id)
-            ped_wait_count += len(pedestrian_ids)
-
-            for p_id in pedestrian_ids:
-                ped_wait_time += traci.person.getWaitingTime(p_id)
-        else:
-            veh_wait_count += traci.lane.getLastStepHaltingNumber(lane)
-            veh_wait_time += traci.lane.getWaitingTime(lane)
-
-    return veh_wait_count, veh_wait_time, ped_wait_count, ped_wait_time
-
+from utils import get_intersection_metrics
 
 def run_fixed_timer():
     """
@@ -37,7 +11,7 @@ def run_fixed_timer():
     acts as your absolute baseline control group
     """
 
-    sumoCmd = ["sumo", "-c", "simulation/sim.sumocfg"]
+    sumoCmd = ["sumo-gui", "-c", "simulation/sim.sumocfg"]
     traci.start(sumoCmd)
 
     step = 0
