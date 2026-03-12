@@ -4,6 +4,11 @@ from collections import deque
 from gymnasium.spaces import Box
 from sumo_rl.environment.observations import ObservationFunction
 
+import traci
+
+import os
+from stable_baselines3.common.callbacks import BaseCallback
+
 phase_buffers = {}
 BUFFER_SIZE = 10
 
@@ -14,7 +19,7 @@ NEIGHBORS_DICT = {
     'C2': ['C1', 'B2'],
 }
 
-class NeighborObservation(ObservationFunction):
+class NeighborAwareObservation(ObservationFunction):
     '''
     Custom observation function to include observation states of neighboring intersection 
     queue data and phase states to local intersections' observation state.
@@ -237,8 +242,29 @@ def fair_wait_time_reward(traffic_signal):
     return reward
 
 
-import os
-from stable_baselines3.common.callbacks import BaseCallback
+def get_intersection_metrics(tl_id):
+    """Helper function to extract wait times and counts for an intersection."""
+    veh_wait_count = 0
+    veh_wait_time = 0
+    ped_wait_count = 0
+    ped_wait_time = 0
+
+    lanes = set(traci.trafficlight.getControlledLanes(tl_id))
+    
+    for lane in lanes:
+        edge_id = traci.lane.getEdgeID(lane)
+        if "_w" in edge_id:
+            pedestrian_ids = traci.edge.getLastStepPersonIDs(edge_id)
+            ped_wait_count += len(pedestrian_ids)
+
+            for p_id in pedestrian_ids:
+                ped_wait_time += traci.person.getWaitingTime(p_id)
+        else:
+            veh_wait_count += traci.lane.getLastStepHaltingNumber(lane)
+            veh_wait_time += traci.lane.getWaitingTime(lane)
+            
+    return veh_wait_count, veh_wait_time, ped_wait_count, ped_wait_time
+
 
 class SaveVecNormalizeCallback(BaseCallback):
     """
