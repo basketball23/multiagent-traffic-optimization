@@ -31,23 +31,53 @@ class NeighborObservation(ObservationFunction):
         # add neighboring traffic signals
         self.neighbors = NEIGHBORS_DICT.get(self.ts.id, [])
 
+        self._setup_done = False
         self.neighbor_lanes = {}
         self.neighbor_lanes_lengths = {}
 
-        for neighbor_id in self.neighbors:
-            lanes = list(dict.fromkeys(self.ts.sumo.trafficlight.getControlledLanes(neighbor_id)))
-            self.neighbor_lanes[neighbor_id] = lanes
 
-            for lane in lanes:
+    def _setup(self):
+        '''
+        filters neighboring lanes to only include those that feed traffic
+        toward the local intersection.
+        '''
+        if self._setup_done:
+            return
+
+        local_incoming_lanes = self.ts.sumo.trafficlight.getControlledLanes(self.ts.id)
+        local_incoming_edges = set([self.ts.sumo.lane.getEdgeID(lane) for lane in local_incoming_lanes])
+
+        for neighbor_id in self.neighbors:
+            all_neighbor_lanes = list(dict.fromkeys(self.ts.sumo.trafficlight.getControlledLanes(neighbor_id)))
+            
+            feeding_lanes = []
+            
+            for lane in all_neighbor_lanes:
+                links = self.ts.sumo.lane.getLinks(lane)
+                
+                for link in links:
+                    approached_lane = link[0]
+                    if approached_lane:
+                        approached_edge = self.ts.sumo.lane.getEdgeID(approached_lane)
+                        
+                        if approached_edge in local_incoming_edges:
+                            feeding_lanes.append(lane)
+                            break
+                            
+            self.neighbor_lanes[neighbor_id] = feeding_lanes
+            
+            for lane in feeding_lanes:
                 self.neighbor_lanes_lengths[lane] = self.ts.sumo.lane.getLength(lane)
+                
+        self._setup_done = True
 
     def __call__(self):
         '''
-        fetch observation states
-
-        everything taken from original observation function up until neighbor_id
+        Fetch observation states
         '''
-        phase_id = [1 if self.ts.green_phase == i else 0 for i in range(self.ts.num_green_phases)]  # one-hot encoding
+        self._setup()
+
+        phase_id = [1 if self.ts.green_phase == i else 0 for i in range(self.ts.num_green_phases)]
         min_green = [0 if self.ts.time_since_last_phase_change < self.ts.min_green + self.ts.yellow_time else 1]
         density = self.ts.get_lanes_density()
         queue = self.ts.get_lanes_queue()
@@ -63,18 +93,17 @@ class NeighborObservation(ObservationFunction):
 
                 obs.append(min(1.0, normalized_queue))
 
-        obs = np.array(obs, dtype=np.float32)
-        return obs
+        return np.array(obs, dtype=np.float32)
 
     def observation_space(self):
         '''
-        return the observation space
+        return the dynamically sized observation space
         '''
+        self._setup() # Ensure lanes are mapped so we know the correct array length
+        
         local_len = self.ts.num_green_phases + (2 * len(self.ts.lanes)) + 1
-
-        neighbor_len = 0
-        for neighbor_id in self.neighbors:
-            neighbor_len += len(self.neighbor_lanes[neighbor_id])
+        
+        neighbor_len = sum(len(lanes) for lanes in self.neighbor_lanes.values())
         
         total_len = local_len + neighbor_len
 
@@ -91,16 +120,26 @@ def fair_wait_time_reward(traffic_signal):
     switching_penalty
     '''
 
-    if not hasattr(traffic_signal, 'phase_buffer'):
+    current_sim_time = traffic_signal.sumo.simulation.getTime()
+    is_new_episode = current_sim_time <= traffic_signal.env.delta_time if hasattr(traffic_signal, 'env') else current_sim_time <= 5.0
+
+    if not hasattr(traffic_signal, 'phase_buffer') or is_new_episode:
         traffic_signal.phase_buffer = deque(maxlen=BUFFER_SIZE)
 
         all_edges = traffic_signal.sumo.edge.getIDList()
+        incoming_edges = traffic_signal.edges
+        
+        local_ped_edges = []
+        for e in all_edges:
+            if '_w' in e:
+                if traffic_signal.id in e or any(inc_edge in e for inc_edge in incoming_edges):
+                    local_ped_edges.append(e)
+                    
+        traffic_signal.pedestrian_edges = local_ped_edges
 
-        traffic_signal.pedestrian_edges = [e for e in all_edges if '_w' in e]
-
-    if not hasattr(traffic_signal, 'prev_vehicle_wait'):
+    if not hasattr(traffic_signal, 'prev_vehicle_wait') or is_new_episode:
         traffic_signal.prev_vehicle_wait = deque(maxlen=1)
-    if not hasattr(traffic_signal, 'prev_pedestrian_wait'):
+    if not hasattr(traffic_signal, 'prev_pedestrian_wait') or is_new_episode:
         traffic_signal.prev_pedestrian_wait = deque(maxlen=1)
 
     current_phase = traffic_signal.green_phase
@@ -108,7 +147,6 @@ def fair_wait_time_reward(traffic_signal):
     '''vehicle waiting and delay'''
 
     lane_wait_times = traffic_signal.get_accumulated_waiting_time_per_lane()
-
     max_lane_wait_time = max(lane_wait_times) if len(lane_wait_times) > 0 else 0
 
     vehicle_waiting_count = traffic_signal.get_total_queued()
@@ -119,7 +157,10 @@ def fair_wait_time_reward(traffic_signal):
 
         # switching penalty only compares to previous state to prevent "credit assignment problem"
         previous_veh_delay = traffic_signal.prev_vehicle_wait[-1]
-        vehicle_delay_delta = previous_veh_delay - vehicle_delay
+        raw_delay_delta = previous_veh_delay - vehicle_delay
+
+        # cap reward to prevent buildup and release
+        vehicle_delay_delta = min(raw_delay_delta, 50.0)
         
     traffic_signal.prev_vehicle_wait.append(vehicle_delay)
 
@@ -187,3 +228,39 @@ def fair_wait_time_reward(traffic_signal):
                switch_pen_norm)
 
     return reward
+
+
+import os
+from stable_baselines3.common.callbacks import BaseCallback
+
+class SaveVecNormalizeCallback(BaseCallback):
+    """
+    Custom callback for saving a model and its VecNormalize statistics at the same time.
+    """
+    def __init__(self, save_freq: int, save_path: str, name_prefix: str = "ppo_model", verbose: int = 0):
+        super().__init__(verbose)
+        self.save_freq = save_freq
+        self.save_path = save_path
+        self.name_prefix = name_prefix
+
+    def _init_callback(self) -> None:
+        # Create folder if it doesn't exist
+        if self.save_path is not None:
+            os.makedirs(self.save_path, exist_ok=True)
+
+    def _on_step(self) -> bool:
+        if self.n_calls % self.save_freq == 0:
+            # Construct file paths
+            model_path = os.path.join(self.save_path, f"{self.name_prefix}_{self.num_timesteps}_steps")
+            stats_path = os.path.join(self.save_path, f"vec_normalize_{self.num_timesteps}_steps.pkl")
+            
+            self.model.save(model_path)
+            
+            if hasattr(self.training_env, 'save'):
+                self.training_env.save(stats_path)
+            
+            if self.verbose > 0:
+                print(f"\nSaved model checkpoint to {model_path}.zip")
+                print(f"Saved VecNormalize stats to {stats_path}")
+                
+        return True
