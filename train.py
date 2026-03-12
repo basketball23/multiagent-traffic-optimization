@@ -2,23 +2,20 @@ import sumo_rl
 import supersuit as ss
 
 from stable_baselines3 import PPO
-from stable_baselines3.common.callbacks import CheckpointCallback
 from stable_baselines3.common.vec_env import VecMonitor, VecNormalize
 
-from utils import NeighborObservation, fair_wait_time_reward
+from utils import NeighborObservation, fair_wait_time_reward, SaveVecNormalizeCallback
 import os
 
 # saving model mid-training
 
-save_dir = "./models6"
-os.makedirs(save_dir, exist_ok=True)
-
-checkpoint_callback = CheckpointCallback(
-    save_freq=50000,
-    save_path=save_dir,
-    name_prefix="ppo_model"
+save_dir = "./models8"
+custom_checkpoint_callback = SaveVecNormalizeCallback(
+    save_freq=50000, 
+    save_path=save_dir, 
+    name_prefix="ppo_model",
+    verbose=1
 )
-
 
 def main():
     '''
@@ -52,9 +49,9 @@ def main():
 
     env = ss.concat_vec_envs_v1(env, num_vec_envs=1, num_cpus=1, base_class='stable_baselines3')
 
-    env = VecNormalize(env, norm_obs=True, norm_reward=False)
-
     env = VecMonitor(env)
+
+    env = VecNormalize(env, norm_obs=True, norm_reward=False)
 
     # initial proximal policy optimization (PPO) model
     alpha = 0.0003
@@ -68,9 +65,10 @@ def main():
         ent_coef=0.05,
     )
 
-    model.learn(total_timesteps=10000000, callback=checkpoint_callback)
+    model.learn(total_timesteps=10000000, callback=custom_checkpoint_callback)
 
     model.save("traffic_model")
+    env.save("vec_normalize.pkl")
 
     env.close()
 
