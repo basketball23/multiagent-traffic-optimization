@@ -40,28 +40,36 @@ def run_multi_rule_based():
     
     with open('rule_based_data.csv', mode='w', newline='') as file:
         writer = csv.writer(file)
-        writer.writerow(['step', 'vehicle_total_stopped', 'vehicle_total_waiting_time', 'pedestrian_total_stopped', 'pedestrian_total_waiting_time'])
+
+        writer.writerow([
+            'step',
+            'vehicle_total_stopped',
+            'vehicle_total_waiting_time',
+            'vehicle_average_waiting_time',
+            'pedestrian_total_stopped',
+            'pedestrian_total_waiting_time',
+            'pedestrian_average_waiting_time'
+        ])
         
         while step < 3600:
             traci.simulationStep()
             tl_ids = traci.trafficlight.getIDList()
             
-            # --- 1. Dynamic Traffic Light Logic ---
             for target_light in tl_ids:
                 if target_light not in phase_timers:
                     phase_timers[target_light] = 0
-                    # FIX: Hijack the timer so SUMO doesn't auto-change it
                     traci.trafficlight.setPhaseDuration(target_light, 1000)
                     
                 phase_timers[target_light] += 1
                 current_phase = traci.trafficlight.getPhase(target_light)
                 
-                # Even phases (0, 2) are Green
-                if current_phase % 2 == 0: 
+                # Green phases
+                if current_phase % 2 == 0:
+
                     if phase_timers[target_light] >= MIN_GREEN_TIME:
+
                         waiting_entities = 0
                         
-                        # FIX: Dynamic Queue Checking (looks for any red light)
                         state_string = traci.trafficlight.getRedYellowGreenState(target_light)
                         lanes = traci.trafficlight.getControlledLanes(target_light)
                         
@@ -70,38 +78,61 @@ def run_multi_rule_based():
                                 waiting_entities += traci.lane.getLastStepHaltingNumber(lane)
                         
                         if waiting_entities >= QUEUE_THRESHOLD:
+
                             next_phase = (current_phase + 1) % 4
                             traci.trafficlight.setPhase(target_light, next_phase)
                             phase_timers[target_light] = 0 
                 
+                # Yellow phase
                 else:
-                    if phase_timers[target_light] >= 4: # Run yellow for exactly 4 seconds
+
+                    if phase_timers[target_light] >= 4:
+
                         next_phase = (current_phase + 1) % 4
                         traci.trafficlight.setPhase(target_light, next_phase)
-                        # Lock the new green light from auto-changing
+
                         traci.trafficlight.setPhaseDuration(target_light, 1000)
                         phase_timers[target_light] = 0
 
+
             if step % 5 == 0:
+
                 net_veh_count = 0
                 net_veh_time = 0
                 net_ped_count = 0
                 net_ped_time = 0
                 
                 for tl_id in tl_ids:
+
                     v_count, v_time, p_count, p_time = get_intersection_metrics(tl_id)
+
                     net_veh_count += v_count
                     net_veh_time += v_time
                     net_ped_count += p_count
                     net_ped_time += p_time
-                    
-                writer.writerow([step, net_veh_count, net_veh_time, net_ped_count, net_ped_time])
+
+                # Compute averages safely
+                veh_avg_wait = net_veh_time / net_veh_count if net_veh_count > 0 else 0
+                ped_avg_wait = net_ped_time / net_ped_count if net_ped_count > 0 else 0
+
+                writer.writerow([
+                    step,
+                    net_veh_count,
+                    net_veh_time,
+                    veh_avg_wait,
+                    net_ped_count,
+                    net_ped_time,
+                    ped_avg_wait
+                ])
+
                 file.flush()
 
             step += 1
 
     traci.close()
+
     print("Rule-Based Simulation Complete. Data saved to rule_based_data.csv.")
+
 
 if __name__ == "__main__":
     run_multi_rule_based()
