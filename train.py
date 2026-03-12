@@ -8,17 +8,6 @@ from stable_baselines3.common.vec_env import VecMonitor, VecNormalize
 from utils import NeighborObservation, fair_wait_time_reward
 import os
 
-# deque to keep track of previous traffic states to prevent rapid switching
-# dictionary of deques for each intersection
-BUFFER_SIZE = 10
-
-NEIGHBORS_DICT = {
-    'B1': ['B2', 'C1'],
-    'B2': ['B1', 'C2'],
-    'C1': ['B1', 'C2'],
-    'C2': ['C1', 'B2'],
-}
-
 # saving model mid-training
 
 save_dir = "./models6"
