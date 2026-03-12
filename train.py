@@ -4,12 +4,12 @@ import supersuit as ss
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import VecMonitor, VecNormalize
 
-from utils import NeighborObservation, fair_wait_time_reward, SaveVecNormalizeCallback
+from utils import NeighborAwareObservation, fair_wait_time_reward, SaveVecNormalizeCallback
 import os
 
 # saving model mid-training
 
-save_dir = "./models8"
+save_dir = "./modelsbaseline"
 custom_checkpoint_callback = SaveVecNormalizeCallback(
     save_freq=50000, 
     save_path=save_dir, 
@@ -32,7 +32,7 @@ def main():
         use_gui=False,
         num_seconds=3600,
         reward_fn=fair_wait_time_reward,
-        observation_class=NeighborObservation,
+        observation_class=NeighborAwareObservation,
         sumo_seed=42,
         #out_csv_name='results',
     )
