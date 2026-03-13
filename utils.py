@@ -182,13 +182,21 @@ def fair_wait_time_reward(traffic_signal):
     pedestrian_waiting_count = 0
     pedestrian_delay = 0
     pedestrian_delay_delta = 0
+    ped_wait_times = []
+    p95_ped_wait = 0
 
     for edge in traffic_signal.pedestrian_edges:
         pedestrian_ids = traffic_signal.sumo.edge.getLastStepPersonIDs(edge)
         pedestrian_waiting_count += len(pedestrian_ids)
 
         for p_id in pedestrian_ids:
-            pedestrian_delay += traffic_signal.sumo.person.getWaitingTime(p_id)
+            p_wait = traffic_signal.sumo.person.getWaitingTime(p_id)
+            pedestrian_delay += p_wait
+            ped_wait_times.append(p_wait)
+
+    if len(ped_wait_times) > 0:
+        p95_ped_wait = np.percentile(ped_wait_times, 95)
+
 
     if len(traffic_signal.prev_pedestrian_wait) > 0:
         # switching penalty only compares to previous state to prevent "credit assignment problem"
@@ -223,11 +231,13 @@ def fair_wait_time_reward(traffic_signal):
     v_w = 2.0 # vehicle waiting time
     f_w = 1.5 # fairness for max waiting time
     e_w = 1.0 # equity from vehs to peds weight
+    t_w = 1.2 # tail pedestrian wait time (95th percentile)
 
     veh_delay_norm = vehicle_delay_delta / 10.0
     ped_delay_norm = pedestrian_delay_delta / 10.0
 
     fairness_norm = max_lane_wait_time / 100.0
+    p95_ped_norm = p95_ped_wait / 120.0
 
     switch_pen_norm = switching_penalty
     equity_norm = min(mode_equity / 10.0, 5)
@@ -236,6 +246,7 @@ def fair_wait_time_reward(traffic_signal):
     reward = (ped_delay_norm + 
                (v_w * veh_delay_norm) - 
                (f_w * fairness_norm) -
+               (t_w * p95_ped_norm) -
                (e_w * equity_norm) -
                switch_pen_norm)
 
@@ -243,7 +254,9 @@ def fair_wait_time_reward(traffic_signal):
 
 
 def get_intersection_metrics(tl_id):
-    """Helper function to extract wait times and counts for an intersection."""
+    '''
+    Helper function to extract wait times and counts for an intersection.
+    '''
     veh_wait_count = 0
     veh_wait_time = 0
     ped_wait_count = 0
@@ -267,9 +280,9 @@ def get_intersection_metrics(tl_id):
 
 
 class SaveVecNormalizeCallback(BaseCallback):
-    """
+    '''
     Custom callback for saving a model and its VecNormalize statistics at the same time.
-    """
+    '''
     def __init__(self, save_freq: int, save_path: str, name_prefix: str = "ppo_model", verbose: int = 0):
         super().__init__(verbose)
         self.save_freq = save_freq
