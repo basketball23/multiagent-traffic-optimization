@@ -1,7 +1,7 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 
-def evaluate_and_compare(file1_path, file2_path, label1="Rule-Based Baseline", label2="AI Model"):
+def evaluate_and_compare(file1_path, file2_path, label1="Fixed-Timer Baseline", label2="MARL Model"):
     print(f"Loading data from {file1_path} and {file2_path}...\n")
     
     # 1. Load the CSVs into Pandas DataFrames
@@ -35,7 +35,7 @@ def evaluate_and_compare(file1_path, file2_path, label1="Rule-Based Baseline", l
     # 3. Generate Visual Comparisons (The Graphs!)
     # We will create a single window with 3 subplots stacked on top of each other
     fig, axes = plt.subplots(3, 1, figsize=(10, 12), sharex=True)
-    fig.suptitle('Traffic Model Evaluation: Rule-Based vs. AI', fontsize=16, fontweight='bold')
+    fig.suptitle('Traffic Model Evaluation: Fixed-Timer vs. MARL', fontsize=16, fontweight='bold')
 
     # Graph A: Vehicle Average Wait Time
     axes[0].plot(df1['step'], df1['vehicle_average_waiting_time'], label=label1, color='red', linewidth=2)
@@ -66,14 +66,14 @@ def evaluate_and_compare(file1_path, file2_path, label1="Rule-Based Baseline", l
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     
     # Save a high-res image for your presentation board before opening the window
-    plt.savefig('model_comparison_charts.png', dpi=300)
-    print("Charts saved successfully as 'model_comparison_charts.png'. Opening window...")
+    plt.savefig('model_comparison_charts1.png', dpi=300)
+    print("Charts saved successfully as 'model_comparison_charts1.png'. Opening window...")
     
     plt.show()
 
 if __name__ == "__main__":
     # Change these filenames to match your actual CSV files!
-    file_a = "rule_based_data.csv"
+    file_a = "fixed_timer_data.csv"
     file_b = "rl_model_data.csv" 
     
     evaluate_and_compare(file_a, file_b)
