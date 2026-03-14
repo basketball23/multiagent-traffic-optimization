@@ -4,7 +4,7 @@
 LOG_FILE="training_log_$(date +%Y%m%d_%H%M%S).txt"
 
 echo "==========================================================="
-echo " Starting overnight training..."
+echo " Starting training..."
 echo " Logging all output to: $LOG_FILE"
 echo " Your Mac is caffeinated and will stay awake."
 echo " Press Ctrl + C to stop training at any time."

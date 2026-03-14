@@ -1,8 +1,11 @@
-Implement Max-Pressure algorithm baseline
+1. Retrain model with updated observation + reward function
+2. Decide whether to use custom observation function or base observation function
 
-Fix Observation State to include pedestrian information; train and get results
-- decide whether to use custom observation or basic observation
+3. retrain all baseline models (no pedestrian aware)
 
-Increase the number of pedestrians/vehicles in the simulation
+4. Implement Max-Pressure algorithm baseline
+
+
+5. Increase the number of pedestrians/vehicles in the simulation
 - Test demand modelling
 
