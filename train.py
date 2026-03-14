@@ -9,7 +9,7 @@ import os
 
 # saving model mid-training
 
-save_dir = "./modelsbaseline"
+save_dir = "./models12"
 custom_checkpoint_callback = SaveVecNormalizeCallback(
     save_freq=50000, 
     save_path=save_dir, 

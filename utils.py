@@ -33,7 +33,10 @@ class NeighborAwareObservation(ObservationFunction):
         self._setup_done = False
         self.neighbor_lanes = {}
         self.neighbor_lanes_lengths = {}
-        self.neighbor_num_green_phases = {}
+
+        self.neighbor_num_phases = {}
+
+        self.local_ped_edges = []
 
     def _setup(self):
         '''
@@ -47,9 +50,6 @@ class NeighborAwareObservation(ObservationFunction):
         local_incoming_edges = set([self.ts.sumo.lane.getEdgeID(lane) for lane in local_incoming_lanes])
 
         for neighbor_id in self.neighbors:
-            phases = self.ts.sumo.trafficlight.getCompleteRedYellowGreenDefinition(neighbor_id)[0].phases
-            green_phases = [p for p in phases if "y" not in p.state and "r" not in p.state]
-            self.neighbor_num_green_phases[neighbor_id] = len(green_phases)
 
             all_neighbor_lanes = list(dict.fromkeys(self.ts.sumo.trafficlight.getControlledLanes(neighbor_id)))
             
@@ -71,6 +71,21 @@ class NeighborAwareObservation(ObservationFunction):
             
             for lane in feeding_lanes:
                 self.neighbor_lanes_lengths[lane] = self.ts.sumo.lane.getLength(lane)
+
+            logic = self.ts.sumo.trafficlight.getCompleteRedYellowGreenDefinition(neighbor_id)[0]
+            green_phases = [
+                p for p in logic.phases 
+                if "y" not in p.state and ("g" in p.state.lower() or "G" in p.state)
+            ]
+            self.neighbor_num_phases[neighbor_id] = len(green_phases)
+
+        all_edges = self.ts.sumo.edge.getIDList()
+        incoming_edges = set([self.ts.sumo.lane.getEdgeID(lane) for lane in self.ts.lanes])
+
+        for e in all_edges:
+            if '_w' in e or '_c' in e: 
+                if self.ts.id in e or any(inc_edge in e for inc_edge in incoming_edges):
+                    self.local_ped_edges.append(e)
                 
         self._setup_done = True
 
@@ -87,20 +102,39 @@ class NeighborAwareObservation(ObservationFunction):
 
         obs = phase_id + min_green + density + queue
 
+        '''get neighbor agent states'''
+
         for neighbor_id in self.neighbors:
             neighbor_ts = self.ts.env.traffic_signals[neighbor_id]
-            num_phases = self.neighbor_num_green_phases[neighbor_id]
+            num_phases = neighbor_ts.num_green_phases
 
             neighbor_phase = [1 if neighbor_ts.green_phase == i else 0 for i in range(num_phases)]
+
+            # include neighbor phase
             obs.extend(neighbor_phase)
 
             for lane in self.neighbor_lanes[neighbor_id]:
                 halting = self.ts.sumo.lane.getLastStepHaltingNumber(lane)
+                veh_count = self.ts.sumo.lane.getLastStepVehicleNumber(lane)
                 length = self.neighbor_lanes_lengths[lane]
 
                 normalized_queue = halting / (length / 5.0)
+                normalized_density = veh_count / (length / 7.5)
 
+                # include neighbor density and queue
                 obs.append(min(1.0, normalized_queue))
+                obs.append(min(1.0, normalized_density))
+
+        '''fetch pedestrian states for observation'''
+        MAX_PEDESTRIANS = 10.0 
+
+        for edge in self.local_ped_edges:
+            pedestrian_ids = self.ts.sumo.edge.getLastStepPersonIDs(edge)
+            count = len(pedestrian_ids)
+            
+            # normalize the count to a 0.0 - 1.0 scale
+            normalized_count = min(1.0, count / MAX_PEDESTRIANS)
+            obs.append(normalized_count)
 
         return np.array(obs, dtype=np.float32)
 
@@ -114,10 +148,13 @@ class NeighborAwareObservation(ObservationFunction):
         
         neighbor_len = 0
         for neighbor_id in self.neighbors:
-            neighbor_len += len(self.neighbor_lanes[neighbor_id])
-            neighbor_len += self.neighbor_num_green_phases[neighbor_id]
+            neighbor_len += 2 * len(self.neighbor_lanes[neighbor_id])
+
+            neighbor_len += self.neighbor_num_phases[neighbor_id]
         
-        total_len = local_len + neighbor_len
+        ped_len = len(self.local_ped_edges)
+        
+        total_len = local_len + neighbor_len + ped_len
 
         return Box(low=0.0, high=1.0, shape=(total_len,), dtype=np.float32)
     
@@ -153,13 +190,16 @@ def fair_wait_time_reward(traffic_signal):
         traffic_signal.prev_vehicle_wait = deque(maxlen=1)
     if not hasattr(traffic_signal, 'prev_pedestrian_wait') or is_new_episode:
         traffic_signal.prev_pedestrian_wait = deque(maxlen=1)
+    if not hasattr(traffic_signal, 'prev_max_lane') or is_new_episode:
+        traffic_signal.prev_max_lane = deque(maxlen=1)
+    if not hasattr(traffic_signal, 'prev_p95') or is_new_episode:
+        traffic_signal.prev_p95 = deque(maxlen=1)
 
     current_phase = traffic_signal.green_phase
 
     '''vehicle waiting and delay'''
 
     lane_wait_times = traffic_signal.get_accumulated_waiting_time_per_lane()
-    max_lane_wait_time = max(lane_wait_times) if len(lane_wait_times) > 0 else 0
 
     vehicle_waiting_count = traffic_signal.get_total_queued()
     vehicle_delay = sum(lane_wait_times)
@@ -172,10 +212,19 @@ def fair_wait_time_reward(traffic_signal):
         raw_delay_delta = previous_veh_delay - vehicle_delay
 
         # cap reward to prevent buildup and release
-        vehicle_delay_delta = min(raw_delay_delta, 50.0)
+        vehicle_delay_delta = np.clip(raw_delay_delta, -50.0, 50.0)
         
     traffic_signal.prev_vehicle_wait.append(vehicle_delay)
 
+    '''max lane wait time'''
+    max_lane_wait_time = max(lane_wait_times) if len(lane_wait_times) > 0 else 0
+    max_lane_wait_delta = 0
+
+    if len(traffic_signal.prev_max_lane) > 0:
+        previous_max_lane = traffic_signal.prev_max_lane[-1]
+        max_lane_wait_delta = previous_max_lane - max_lane_wait_time
+    
+    traffic_signal.prev_max_lane.append(max_lane_wait_time)
 
     '''pedestrian delay'''
 
@@ -183,7 +232,6 @@ def fair_wait_time_reward(traffic_signal):
     pedestrian_delay = 0
     pedestrian_delay_delta = 0
     ped_wait_times = []
-    p95_ped_wait = 0
 
     for edge in traffic_signal.pedestrian_edges:
         pedestrian_ids = traffic_signal.sumo.edge.getLastStepPersonIDs(edge)
@@ -194,16 +242,25 @@ def fair_wait_time_reward(traffic_signal):
             pedestrian_delay += p_wait
             ped_wait_times.append(p_wait)
 
-    if len(ped_wait_times) > 0:
-        p95_ped_wait = np.percentile(ped_wait_times, 95)
-
-
     if len(traffic_signal.prev_pedestrian_wait) > 0:
         # switching penalty only compares to previous state to prevent "credit assignment problem"
         previous_ped_delay = traffic_signal.prev_pedestrian_wait[-1]
         pedestrian_delay_delta = previous_ped_delay - pedestrian_delay
         
     traffic_signal.prev_pedestrian_wait.append(pedestrian_delay)
+
+    '''p95 calculation'''
+
+    p95_ped_wait = 0
+    if len(ped_wait_times) > 0:
+        p95_ped_wait = np.percentile(ped_wait_times, 95)
+    
+    p95_ped_delta = 0
+    if len(traffic_signal.prev_p95) > 0:
+        previous_p95 = traffic_signal.prev_p95[-1]
+        p95_ped_delta = previous_p95 - p95_ped_wait
+    
+    traffic_signal.prev_p95.append(p95_ped_wait)
 
     '''switching penalty'''
 
@@ -236,19 +293,20 @@ def fair_wait_time_reward(traffic_signal):
     veh_delay_norm = vehicle_delay_delta / 10.0
     ped_delay_norm = pedestrian_delay_delta / 10.0
 
-    fairness_norm = max_lane_wait_time / 100.0
-    p95_ped_norm = p95_ped_wait / 120.0
+    fairness_norm = max_lane_wait_delta / 10.0
+    p95_ped_norm = p95_ped_delta / 10.0
 
     switch_pen_norm = switching_penalty
     equity_norm = min(mode_equity / 10.0, 5)
 
 
-    reward = (ped_delay_norm + 
-               (v_w * veh_delay_norm) - 
-               (f_w * fairness_norm) -
-               (t_w * p95_ped_norm) -
-               (e_w * equity_norm) -
-               switch_pen_norm)
+    reward = (ped_delay_norm 
+              + (v_w * veh_delay_norm)  
+              + (f_w * fairness_norm) 
+              + (t_w * p95_ped_norm) 
+              - (e_w * equity_norm) 
+              - switch_pen_norm
+              )
 
     return reward
 
