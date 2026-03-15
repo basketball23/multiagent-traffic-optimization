@@ -9,10 +9,10 @@ import os
 
 # saving model mid-training
 
-save_dir = "./models12"
+save_dir = "./models13"
 custom_checkpoint_callback = SaveVecNormalizeCallback(
     save_freq=50000, 
-    save_path=save_dir, 
+    save_path=save_dir,
     name_prefix="ppo_model",
     verbose=1
 )
@@ -28,13 +28,12 @@ def main():
     # creating multi-agent environment
     env = sumo_rl.parallel_env(
         net_file='simulation/grid-network.net.xml',
-        route_file='simulation/vehs.rou.xml,simulation/peds.rou.xml',
+        route_file='simulation/vehs2.rou.xml,simulation/peds2.rou.xml',
         use_gui=False,
         num_seconds=3600,
         reward_fn=fair_wait_time_reward,
         observation_class=NeighborAwareObservation,
         sumo_seed=42,
-        #out_csv_name='results',
     )
 
     # used to make compatible

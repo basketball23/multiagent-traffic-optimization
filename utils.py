@@ -21,7 +21,7 @@ NEIGHBORS_DICT = {
 
 class NeighborAwareObservation(ObservationFunction):
     '''
-    Custom observation function to include observation states of neighboring intersection 
+    custom observation function to include observation states of neighboring intersection 
     queue data and phase states to local intersections' observation state.
     '''
     def __init__(self, traffic_signal):
@@ -40,7 +40,7 @@ class NeighborAwareObservation(ObservationFunction):
 
     def _setup(self):
         '''
-        Filters neighboring lanes to only include those that feed traffic
+        filters neighboring lanes to only include those that feed traffic
         toward the local intersection, and dynamically counts neighbor green phases.
         '''
         if self._setup_done:
@@ -91,7 +91,7 @@ class NeighborAwareObservation(ObservationFunction):
 
     def __call__(self):
         '''
-        Fetch observation states
+        fetch observation states
         '''
         self._setup()
 
@@ -140,7 +140,7 @@ class NeighborAwareObservation(ObservationFunction):
 
     def observation_space(self):
         '''
-        Return the dynamically sized observation space
+        return the dynamically sized observation space
         '''
         self._setup()
         
