@@ -57,24 +57,29 @@ def run_multi_rule_based():
                 phase_timers[target_light] += 1
                 current_phase = traci.trafficlight.getPhase(target_light)
                 
+                logic = traci.trafficlight.getCompleteRedYellowGreenDefinition(target_light)[0]
+                num_phases = len(logic.phases)
+                
                 if current_phase % 2 == 0:
                     if phase_timers[target_light] >= MIN_GREEN_TIME:
                         waiting_entities = 0
                         state_string = traci.trafficlight.getRedYellowGreenState(target_light)
                         lanes = traci.trafficlight.getControlledLanes(target_light)
                         
+                        unique_lanes = set()
                         for i, lane in enumerate(lanes):
-                            if state_string[i].lower() == 'r':
+                            if state_string[i].lower() == 'r' and lane not in unique_lanes:
                                 waiting_entities += traci.lane.getLastStepHaltingNumber(lane)
+                                unique_lanes.add(lane)
                         
                         if waiting_entities >= QUEUE_THRESHOLD:
-                            next_phase = (current_phase + 1) % 4
+                            next_phase = (current_phase + 1) % num_phases
                             traci.trafficlight.setPhase(target_light, next_phase)
                             phase_timers[target_light] = 0 
                 
                 else:
                     if phase_timers[target_light] >= 4:
-                        next_phase = (current_phase + 1) % 4
+                        next_phase = (current_phase + 1) % num_phases
                         traci.trafficlight.setPhase(target_light, next_phase)
                         traci.trafficlight.setPhaseDuration(target_light, 1000)
                         phase_timers[target_light] = 0
