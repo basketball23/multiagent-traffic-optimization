@@ -159,157 +159,98 @@ class NeighborAwareObservation(ObservationFunction):
         return Box(low=0.0, high=1.0, shape=(total_len,), dtype=np.float32)
     
 
+def jains_fairness_index(values):
+    """
+    returns a value from 1/n (unfair) to 1.0 (perfectly fair).
+    gini coefficient basically
+    """
+    if not values or sum(values) == 0:
+        return 1.0
+    n = len(values)
+    return (sum(values)**2) / (n * sum(v**2 for v in values))
+
 def fair_wait_time_reward(traffic_signal):
-    '''
-    custom reward function to balance vehicles, pedestrians, and signal frequency switching
-
-    vars:
-    vehicle_delay
-    pedestrain_waiting_count
-    switching_penalty
-    '''
-
     current_sim_time = traffic_signal.sumo.simulation.getTime()
-    is_new_episode = current_sim_time <= traffic_signal.env.delta_time if hasattr(traffic_signal, 'env') else current_sim_time <= 5.0
+    is_new_episode = current_sim_time <= (traffic_signal.env.delta_time if hasattr(traffic_signal, 'env') else 5.0)
 
-    if not hasattr(traffic_signal, 'phase_buffer') or is_new_episode:
-        traffic_signal.phase_buffer = deque(maxlen=BUFFER_SIZE)
-
+    '''set up previous states'''
+    if not hasattr(traffic_signal, 'prev_stats') or is_new_episode:
+        traffic_signal.prev_stats = {
+            'veh_delay': 0,
+            'ped_delay': 0,
+            'max_lane_wait': 0,
+            'p95_ped': 0,
+            'equity_idx': 1.0,
+            'phase': None
+        }
         all_edges = traffic_signal.sumo.edge.getIDList()
         incoming_edges = set([traffic_signal.sumo.lane.getEdgeID(lane) for lane in traffic_signal.lanes])
+        traffic_signal.pedestrian_edges = [e for e in all_edges if '_w' in e and 
+                                           (traffic_signal.id in e or any(inc in e for inc in incoming_edges))]
 
-        local_ped_edges = []
-        for e in all_edges:
-            if '_w' in e:
-                if traffic_signal.id in e or any(inc_edge in e for inc_edge in incoming_edges):
-                    local_ped_edges.append(e)
-                    
-        traffic_signal.pedestrian_edges = local_ped_edges
 
-    if not hasattr(traffic_signal, 'prev_vehicle_wait') or is_new_episode:
-        traffic_signal.prev_vehicle_wait = deque(maxlen=1)
-    if not hasattr(traffic_signal, 'prev_pedestrian_wait') or is_new_episode:
-        traffic_signal.prev_pedestrian_wait = deque(maxlen=1)
-    if not hasattr(traffic_signal, 'prev_max_lane') or is_new_episode:
-        traffic_signal.prev_max_lane = deque(maxlen=1)
-    if not hasattr(traffic_signal, 'prev_p95') or is_new_episode:
-        traffic_signal.prev_p95 = deque(maxlen=1)
-
-    current_phase = traffic_signal.green_phase
-
-    '''vehicle waiting and delay'''
-
+    '''vehicle delay'''
     lane_wait_times = traffic_signal.get_accumulated_waiting_time_per_lane()
-
     vehicle_waiting_count = traffic_signal.get_total_queued()
     vehicle_delay = sum(lane_wait_times)
-    vehicle_delay_delta = 0
 
-    if len(traffic_signal.prev_vehicle_wait) > 0:
+    '''max lane wait'''
+    max_lane_wait = max(lane_wait_times) if lane_wait_times else 0
 
-        # switching penalty only compares to previous state to prevent "credit assignment problem"
-        previous_veh_delay = traffic_signal.prev_vehicle_wait[-1]
-        raw_delay_delta = previous_veh_delay - vehicle_delay
-
-        # cap reward to prevent buildup and release
-        vehicle_delay_delta = np.clip(raw_delay_delta, -50.0, 50.0)
-        
-    traffic_signal.prev_vehicle_wait.append(vehicle_delay)
-
-    '''max lane wait time'''
-    max_lane_wait_time = max(lane_wait_times) if len(lane_wait_times) > 0 else 0
-    max_lane_wait_delta = 0
-
-    if len(traffic_signal.prev_max_lane) > 0:
-        previous_max_lane = traffic_signal.prev_max_lane[-1]
-        max_lane_wait_delta = previous_max_lane - max_lane_wait_time
-    
-    traffic_signal.prev_max_lane.append(max_lane_wait_time)
-
-    '''pedestrian delay'''
-
-    pedestrian_waiting_count = 0
-    pedestrian_delay = 0
-    pedestrian_delay_delta = 0
+    '''pedestrian metrics'''
     ped_wait_times = []
-
     for edge in traffic_signal.pedestrian_edges:
-        pedestrian_ids = traffic_signal.sumo.edge.getLastStepPersonIDs(edge)
-        pedestrian_waiting_count += len(pedestrian_ids)
-
-        for p_id in pedestrian_ids:
-            p_wait = traffic_signal.sumo.person.getWaitingTime(p_id)
-            pedestrian_delay += p_wait
-            ped_wait_times.append(p_wait)
-
-    if len(traffic_signal.prev_pedestrian_wait) > 0:
-        # switching penalty only compares to previous state to prevent "credit assignment problem"
-        previous_ped_delay = traffic_signal.prev_pedestrian_wait[-1]
-        pedestrian_delay_delta = previous_ped_delay - pedestrian_delay
-        
-    traffic_signal.prev_pedestrian_wait.append(pedestrian_delay)
-
-    '''p95 calculation'''
-
-    p95_ped_wait = 0
-    if len(ped_wait_times) > 0:
-        p95_ped_wait = np.percentile(ped_wait_times, 95)
+        p_ids = traffic_signal.sumo.edge.getLastStepPersonIDs(edge)
+        for p_id in p_ids:
+            ped_wait_times.append(traffic_signal.sumo.person.getWaitingTime(p_id))
     
-    p95_ped_delta = 0
-    if len(traffic_signal.prev_p95) > 0:
-        previous_p95 = traffic_signal.prev_p95[-1]
-        p95_ped_delta = previous_p95 - p95_ped_wait
-    
-    traffic_signal.prev_p95.append(p95_ped_wait)
+    pedestrian_delay = sum(ped_wait_times)
+    p95_ped_wait = np.percentile(ped_wait_times, 95) if ped_wait_times else 0
+
+    '''averages'''
+    avg_veh = vehicle_delay / max(1, vehicle_waiting_count)
+    avg_ped = pedestrian_delay / max(1, len(ped_wait_times))
+
+    '''fairness/equity metrics'''
+    current_equity_idx = jains_fairness_index([avg_veh, avg_ped])
+
+    '''calculating deltas'''
+    v_delay_delta = traffic_signal.prev_stats['veh_delay'] - vehicle_delay
+    p_delay_delta = traffic_signal.prev_stats['ped_delay'] - pedestrian_delay
+    max_lane_delta = traffic_signal.prev_stats['max_lane_wait'] - max_lane_wait
+    p95_delta = traffic_signal.prev_stats['p95_ped'] - p95_ped_wait
+    equity_delta = current_equity_idx - traffic_signal.prev_stats['equity_idx']
 
     '''switching penalty'''
+    current_phase = traffic_signal.green_phase
+    switching_penalty = 1.0 if (traffic_signal.prev_stats['phase'] is not None and 
+                               current_phase != traffic_signal.prev_stats['phase']) else 0.0
 
-    switching_penalty = 0
-    # switching penalty weight
-    sp_w = 0.8
+    w_veh = 2.0
+    w_ped = 1.5
+    w_fair = 1.2
+    w_equity = 10.0
+    w_switch = 0.8
 
-    if len(traffic_signal.phase_buffer) > 0:
+    reward = (
+        (w_veh * (v_delay_delta / 20.0)) + 
+        (w_ped * (p_delay_delta / 20.0)) + 
+        (w_fair * (max_lane_delta / 10.0)) + 
+        (w_fair * (p95_delta / 10.0)) +
+        (w_equity * equity_delta) -
+        (w_switch * switching_penalty)
+    )
 
-        # switching penalty only compares to previous state to prevent "credit assignment problem"
-        previous_phase = traffic_signal.phase_buffer[-1]
-
-        if current_phase != previous_phase:
-            switching_penalty = sp_w
-        
-    traffic_signal.phase_buffer.append(current_phase)
-
-
-    avg_veh_wait = vehicle_delay / vehicle_waiting_count if vehicle_waiting_count > 0 else 0
-    avg_ped_wait = pedestrian_delay / pedestrian_waiting_count if pedestrian_waiting_count > 0 else 0
-
-    mode_equity = abs(avg_veh_wait - avg_ped_wait)
-
-    # weights
-    v_w = 2.0 # vehicle waiting time
-    f_w = 1.5 # fairness for max waiting time
-    e_w = 1.0 # equity from vehs to peds weight
-    t_w = 1.2 # tail pedestrian wait time (95th percentile)
-
-    veh_delay_norm = vehicle_delay_delta / 10.0
-    ped_delay_norm = pedestrian_delay_delta / 10.0
-
-    fairness_norm = max_lane_wait_delta / 10.0
-    p95_ped_norm = p95_ped_delta / 10.0
-
-    switch_pen_norm = switching_penalty
-    equity_norm = min(mode_equity / 10.0, 5)
-
-
-    reward = (ped_delay_norm 
-              + (v_w * veh_delay_norm)  
-              + (f_w * fairness_norm) 
-              + (t_w * p95_ped_norm) 
-              - (e_w * equity_norm) 
-              - switch_pen_norm
-              )
+    traffic_signal.prev_stats = {
+        'veh_delay': vehicle_delay,
+        'ped_delay': pedestrian_delay,
+        'max_lane_wait': max_lane_wait,
+        'p95_ped': p95_ped_wait,
+        'equity_idx': current_equity_idx,
+        'phase': current_phase
+    }
 
     return reward
-
 
 def get_intersection_metrics(tl_id):
     '''
