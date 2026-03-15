@@ -2,7 +2,7 @@
 - This project attempts to use Multi-Agent Reinforcement Learning (MARL) with centralized training and decentralized execution to minimize joint pedestrian-vehicle waiting times
 - Employing Parameter-Shared MARL with Decentralized Cooperative Agents to Achieve Fair and Efficient Wait Times for Pedestrians and Vehicles
 
-## Pipeline will go:
+## Training Pipeline:
 1. SUMO runs simulation step
 2. TraCI fetches information/data every x seconds using built-in functions. Each intersection observes:
     - Default data (pressure, density, traffic light phases, min time since change)
@@ -18,3 +18,10 @@
         * Max lane wait times (prevents starvation)
         * Traffic signal switching penalty
 5. Repeat
+
+## Testing Pipeline:
+1. Load models & normalization checkpoints
+2. Run model
+3. Use orchestrator script to automate process
+4. Save data
+5. Compare and visualize
