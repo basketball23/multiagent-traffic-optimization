@@ -1,5 +1,4 @@
 import numpy as np
-from collections import deque
 
 from gymnasium.spaces import Box
 from sumo_rl.environment.observations import ObservationFunction
@@ -161,8 +160,7 @@ class NeighborAwareObservation(ObservationFunction):
 
 def jains_fairness_index(values):
     """
-    returns a value from 1/n (unfair) to 1.0 (perfectly fair).
-    gini coefficient basically
+    returns a value from 1/n (unfair) to 1.0 (perfectly fair)
     """
     if not values or sum(values) == 0:
         return 1.0
@@ -171,25 +169,28 @@ def jains_fairness_index(values):
 
 def fair_wait_time_reward(traffic_signal):
     current_sim_time = traffic_signal.sumo.simulation.getTime()
-    is_new_episode = current_sim_time <= (traffic_signal.env.delta_time if hasattr(traffic_signal, 'env') else 5.0)
+    delta_t = traffic_signal.env.delta_time if hasattr(traffic_signal, 'env') else 5.0
+    is_new_episode = current_sim_time <= delta_t
 
-    '''set up previous states'''
     if not hasattr(traffic_signal, 'prev_stats') or is_new_episode:
+        all_edges = traffic_signal.sumo.edge.getIDList()
+        incoming_edges = set([traffic_signal.sumo.lane.getEdgeID(lane) for lane in traffic_signal.lanes])
+        traffic_signal.pedestrian_edges = [e for e in all_edges if '_w' in e and 
+                                           (traffic_signal.id in e or any(inc in e for inc in incoming_edges))]
+        
         traffic_signal.prev_stats = {
             'veh_delay': 0,
             'ped_delay': 0,
             'max_lane_wait': 0,
             'p95_ped': 0,
             'equity_idx': 1.0,
+            'ema_veh': 0.0,
+            'ema_ped': 0.0,
             'phase': None
         }
-        all_edges = traffic_signal.sumo.edge.getIDList()
-        incoming_edges = set([traffic_signal.sumo.lane.getEdgeID(lane) for lane in traffic_signal.lanes])
-        traffic_signal.pedestrian_edges = [e for e in all_edges if '_w' in e and 
-                                           (traffic_signal.id in e or any(inc in e for inc in incoming_edges))]
 
 
-    '''vehicle delay'''
+    '''vehicle metrics'''
     lane_wait_times = traffic_signal.get_accumulated_waiting_time_per_lane()
     vehicle_waiting_count = traffic_signal.get_total_queued()
     vehicle_delay = sum(lane_wait_times)
@@ -207,18 +208,28 @@ def fair_wait_time_reward(traffic_signal):
     pedestrian_delay = sum(ped_wait_times)
     p95_ped_wait = np.percentile(ped_wait_times, 95) if ped_wait_times else 0
 
-    '''averages'''
-    avg_veh = vehicle_delay / max(1, vehicle_waiting_count)
-    avg_ped = pedestrian_delay / max(1, len(ped_wait_times))
+    '''averages and EMA Smoothing'''
+    avg_veh = vehicle_delay / vehicle_waiting_count if vehicle_waiting_count > 0 else 0.0
+    avg_ped = pedestrian_delay / len(ped_wait_times) if ped_wait_times else 0.0
+
+    # smooth the averages so a sudden burst doesn't explode the gradients
+    alpha = 0.2
+    ema_veh = (1 - alpha) * traffic_signal.prev_stats['ema_veh'] + (alpha * avg_veh)
+    ema_ped = (1 - alpha) * traffic_signal.prev_stats['ema_ped'] + (alpha * avg_ped)
 
     '''fairness/equity metrics'''
-    current_equity_idx = jains_fairness_index([avg_veh, avg_ped])
+    # if a group is empty don't penalize
+    if vehicle_waiting_count == 0 or len(ped_wait_times) == 0:
+        current_equity_idx = traffic_signal.prev_stats['equity_idx']
+    else:
+        current_equity_idx = jains_fairness_index([ema_veh, ema_ped])
 
-    '''calculating deltas'''
-    v_delay_delta = traffic_signal.prev_stats['veh_delay'] - vehicle_delay
-    p_delay_delta = traffic_signal.prev_stats['ped_delay'] - pedestrian_delay
-    max_lane_delta = traffic_signal.prev_stats['max_lane_wait'] - max_lane_wait
-    p95_delta = traffic_signal.prev_stats['p95_ped'] - p95_ped_wait
+    '''calculate and clip deltas'''
+    # clip to prevent massive reward spikes
+    v_delay_delta = np.clip(traffic_signal.prev_stats['veh_delay'] - vehicle_delay, -50, 50)
+    p_delay_delta = np.clip(traffic_signal.prev_stats['ped_delay'] - pedestrian_delay, -50, 50)
+    max_lane_delta = np.clip(traffic_signal.prev_stats['max_lane_wait'] - max_lane_wait, -20, 20)
+    p95_delta = np.clip(traffic_signal.prev_stats['p95_ped'] - p95_ped_wait, -20, 20)
     equity_delta = current_equity_idx - traffic_signal.prev_stats['equity_idx']
 
     '''switching penalty'''
@@ -228,8 +239,8 @@ def fair_wait_time_reward(traffic_signal):
 
     w_veh = 2.0
     w_ped = 1.5
-    w_fair = 1.2
-    w_equity = 10.0
+    w_fair = 1.0
+    w_equity = 3.0
     w_switch = 0.8
 
     reward = (
@@ -241,12 +252,17 @@ def fair_wait_time_reward(traffic_signal):
         (w_switch * switching_penalty)
     )
 
+    # final overall reward clipping to keep the critic stable
+    reward = np.clip(reward, -15.0, 15.0)
+
     traffic_signal.prev_stats = {
         'veh_delay': vehicle_delay,
         'ped_delay': pedestrian_delay,
         'max_lane_wait': max_lane_wait,
         'p95_ped': p95_ped_wait,
         'equity_idx': current_equity_idx,
+        'ema_veh': ema_veh,
+        'ema_ped': ema_ped,
         'phase': current_phase
     }
 
