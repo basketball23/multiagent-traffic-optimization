@@ -291,6 +291,7 @@ def fair_wait_time_reward(traffic_signal):
 
     return reward
 
+
 def vehicle_baseline_reward(traffic_signal):
     """
     optimized vehicle-only reward function for MARL baseline.
@@ -301,11 +302,22 @@ def vehicle_baseline_reward(traffic_signal):
     delta_t = traffic_signal.env.delta_time if hasattr(traffic_signal, 'env') else 5.0
     is_new_episode = current_sim_time <= delta_t
 
-    if not hasattr(traffic_signal, 'prev_stats') or is_new_episode:
+    if not hasattr(traffic_signal, 'prev_stats') or is_new_episode:        
+        incoming_edges = set([traffic_signal.sumo.lane.getEdgeID(lane) for lane in traffic_signal.lanes])
+        traffic_signal.incoming_edges = list(incoming_edges)
+        
+        out_edges = set()
+        for lane in traffic_signal.lanes:
+            for link in traffic_signal.sumo.lane.getLinks(lane):
+                if link[0]:
+                    out_edges.add(traffic_signal.sumo.lane.getEdgeID(link[0]))
+        traffic_signal.outgoing_edges = list(out_edges)
+
         traffic_signal.prev_stats = {
             'veh_delay': 0,
             'max_lane_wait': 0,
-            'phase': None
+            'phase': None,
+            'pressure': 0.0
         }
 
 
@@ -313,8 +325,15 @@ def vehicle_baseline_reward(traffic_signal):
     vehicle_delay = sum(lane_wait_times)
     max_lane_wait = max(lane_wait_times) if lane_wait_times else 0
 
+
+    in_count = sum(traffic_signal.sumo.edge.getLastStepVehicleNumber(e) for e in traffic_signal.incoming_edges)
+    out_count = sum(traffic_signal.sumo.edge.getLastStepVehicleNumber(e) for e in traffic_signal.outgoing_edges)
+    current_pressure = abs(in_count - out_count)
+
     v_delay_delta = traffic_signal.prev_stats['veh_delay'] - vehicle_delay
     max_lane_delta = traffic_signal.prev_stats['max_lane_wait'] - max_lane_wait
+    pressure_delta = np.clip(traffic_signal.prev_stats['pressure'] - current_pressure, -30, 30)
+
 
     current_phase = traffic_signal.green_phase
     switching_penalty = 1.0 if (traffic_signal.prev_stats['phase'] is not None and 
@@ -322,18 +341,21 @@ def vehicle_baseline_reward(traffic_signal):
 
     w_veh = 2.0
     w_max_wait = 1.2
+    w_pressure = 1.5
     w_switch = 0.8
 
     reward = (
         (w_veh * (v_delay_delta / 20.0)) + 
-        (w_max_wait * (max_lane_delta / 10.0)) - 
+        (w_max_wait * (max_lane_delta / 10.0)) + 
+        (w_pressure * (pressure_delta / 15.0)) -
         (w_switch * switching_penalty)
     )
 
     traffic_signal.prev_stats = {
         'veh_delay': vehicle_delay,
         'max_lane_wait': max_lane_wait,
-        'phase': current_phase
+        'phase': current_phase,
+        'pressure': current_pressure
     }
 
     return reward
