@@ -158,6 +158,8 @@ class NeighborAwareObservation(ObservationFunction):
         return Box(low=0.0, high=1.0, shape=(total_len,), dtype=np.float32)
     
 
+import numpy as np
+
 def jains_fairness_index(values):
     """
     returns a value from 1/n (unfair) to 1.0 (perfectly fair)
@@ -174,7 +176,17 @@ def fair_wait_time_reward(traffic_signal):
 
     if not hasattr(traffic_signal, 'prev_stats') or is_new_episode:
         all_edges = traffic_signal.sumo.edge.getIDList()
+        
         incoming_edges = set([traffic_signal.sumo.lane.getEdgeID(lane) for lane in traffic_signal.lanes])
+        traffic_signal.incoming_edges = list(incoming_edges)
+        
+        out_edges = set()
+        for lane in traffic_signal.lanes:
+            for link in traffic_signal.sumo.lane.getLinks(lane):
+                if link[0]:
+                    out_edges.add(traffic_signal.sumo.lane.getEdgeID(link[0]))
+        traffic_signal.outgoing_edges = list(out_edges)
+
         traffic_signal.pedestrian_edges = [e for e in all_edges if '_w' in e and 
                                            (traffic_signal.id in e or any(inc in e for inc in incoming_edges))]
         
@@ -186,6 +198,7 @@ def fair_wait_time_reward(traffic_signal):
             'equity_idx': 1.0,
             'ema_veh': 0.0,
             'ema_ped': 0.0,
+            'pressure': 0.0,
             'phase': None
         }
 
@@ -224,6 +237,12 @@ def fair_wait_time_reward(traffic_signal):
     else:
         current_equity_idx = jains_fairness_index([ema_veh, ema_ped])
 
+    '''pressure calculation'''
+    # total vehicles approaching vs total vehicles departing
+    in_count = sum(traffic_signal.sumo.edge.getLastStepVehicleNumber(e) for e in traffic_signal.incoming_edges)
+    out_count = sum(traffic_signal.sumo.edge.getLastStepVehicleNumber(e) for e in traffic_signal.outgoing_edges)
+    current_pressure = abs(in_count - out_count)
+
     '''calculate and clip deltas'''
     # clip to prevent massive reward spikes
     v_delay_delta = np.clip(traffic_signal.prev_stats['veh_delay'] - vehicle_delay, -50, 50)
@@ -231,6 +250,7 @@ def fair_wait_time_reward(traffic_signal):
     max_lane_delta = np.clip(traffic_signal.prev_stats['max_lane_wait'] - max_lane_wait, -20, 20)
     p95_delta = np.clip(traffic_signal.prev_stats['p95_ped'] - p95_ped_wait, -20, 20)
     equity_delta = current_equity_idx - traffic_signal.prev_stats['equity_idx']
+    pressure_delta = np.clip(traffic_signal.prev_stats['pressure'] - current_pressure, -30, 30)
 
     '''switching penalty'''
     current_phase = traffic_signal.green_phase
@@ -242,13 +262,15 @@ def fair_wait_time_reward(traffic_signal):
     w_fair = 1.0
     w_equity = 3.0
     w_switch = 0.8
+    w_pressure = 1.5
 
     reward = (
         (w_veh * (v_delay_delta / 20.0)) + 
         (w_ped * (p_delay_delta / 20.0)) + 
         (w_fair * (max_lane_delta / 10.0)) + 
         (w_fair * (p95_delta / 10.0)) +
-        (w_equity * equity_delta) -
+        (w_equity * equity_delta) +
+        (w_pressure * (pressure_delta / 15.0)) -
         (w_switch * switching_penalty)
     )
 
@@ -263,11 +285,11 @@ def fair_wait_time_reward(traffic_signal):
         'equity_idx': current_equity_idx,
         'ema_veh': ema_veh,
         'ema_ped': ema_ped,
+        'pressure': current_pressure,
         'phase': current_phase
     }
 
     return reward
-
 
 def vehicle_baseline_reward(traffic_signal):
     """
