@@ -252,6 +252,55 @@ def fair_wait_time_reward(traffic_signal):
 
     return reward
 
+
+def vehicle_baseline_reward(traffic_signal):
+    """
+    optimized vehicle-only reward function for MARL baseline.
+    computes reward based strictly on vehicle delay, max lane wait, and phase switching.
+    """
+    current_sim_time = traffic_signal.sumo.simulation.getTime()
+    
+    delta_t = traffic_signal.env.delta_time if hasattr(traffic_signal, 'env') else 5.0
+    is_new_episode = current_sim_time <= delta_t
+
+    if not hasattr(traffic_signal, 'prev_stats') or is_new_episode:
+        traffic_signal.prev_stats = {
+            'veh_delay': 0,
+            'max_lane_wait': 0,
+            'phase': None
+        }
+
+
+    lane_wait_times = traffic_signal.get_accumulated_waiting_time_per_lane()
+    vehicle_delay = sum(lane_wait_times)
+    max_lane_wait = max(lane_wait_times) if lane_wait_times else 0
+
+    v_delay_delta = traffic_signal.prev_stats['veh_delay'] - vehicle_delay
+    max_lane_delta = traffic_signal.prev_stats['max_lane_wait'] - max_lane_wait
+
+    current_phase = traffic_signal.green_phase
+    switching_penalty = 1.0 if (traffic_signal.prev_stats['phase'] is not None and 
+                               current_phase != traffic_signal.prev_stats['phase']) else 0.0
+
+    w_veh = 2.0
+    w_max_wait = 1.2
+    w_switch = 0.8
+
+    reward = (
+        (w_veh * (v_delay_delta / 20.0)) + 
+        (w_max_wait * (max_lane_delta / 10.0)) - 
+        (w_switch * switching_penalty)
+    )
+
+    traffic_signal.prev_stats = {
+        'veh_delay': vehicle_delay,
+        'max_lane_wait': max_lane_wait,
+        'phase': current_phase
+    }
+
+    return reward
+
+
 def get_intersection_metrics(tl_id):
     '''
     Helper function to extract wait times and counts for an intersection.
