@@ -4,12 +4,11 @@ import supersuit as ss
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import VecMonitor, VecNormalize
 
-from utils import NeighborAwareObservation, fair_wait_time_reward, SaveVecNormalizeCallback
-import os
+from utils import NeighborAwareObservation, SaveVecNormalizeCallback, fair_wait_time_reward, vehicle_baseline_reward
 
 # saving model mid-training
 
-save_dir = "./models13"
+save_dir = "./models16_no_rew"
 custom_checkpoint_callback = SaveVecNormalizeCallback(
     save_freq=50000, 
     save_path=save_dir,
@@ -28,10 +27,10 @@ def main():
     # creating multi-agent environment
     env = sumo_rl.parallel_env(
         net_file='simulation/grid-network.net.xml',
-        route_file='simulation/vehs2.rou.xml,simulation/peds2.rou.xml',
+        route_file='simulation/vehs.rou.xml,simulation/peds.rou.xml',
         use_gui=False,
         num_seconds=3600,
-        reward_fn=fair_wait_time_reward,
+        reward_fn=vehicle_baseline_reward,
         observation_class=NeighborAwareObservation,
         sumo_seed=42,
     )

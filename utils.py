@@ -8,8 +8,6 @@ import traci
 import os
 from stable_baselines3.common.callbacks import BaseCallback
 
-phase_buffers = {}
-BUFFER_SIZE = 10
 
 NEIGHBORS_DICT = {
     'B1': ['B2', 'C1'],
@@ -157,8 +155,6 @@ class NeighborAwareObservation(ObservationFunction):
 
         return Box(low=0.0, high=1.0, shape=(total_len,), dtype=np.float32)
     
-
-import numpy as np
 
 def jains_fairness_index(values):
     """
