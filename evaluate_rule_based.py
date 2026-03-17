@@ -134,8 +134,6 @@ def run_multi_rule_based():
                     cross_modal_fairness, intra_lane_fairness, p95_ped_wait
                 ])
 
-                file.flush()
-
             step += 1
 
     traci.close()

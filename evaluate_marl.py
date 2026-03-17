@@ -32,12 +32,12 @@ def main():
     env = ss.pettingzoo_env_to_vec_env_v1(env)
     env = ss.concat_vec_envs_v1(env, num_vec_envs=1, num_cpus=1, base_class='stable_baselines3')
 
-    stats_path = "models13/vec_normalize_6800000_steps.pkl" 
+    stats_path = "models16/vec_normalize_7000000_steps.pkl" 
     env = VecNormalize.load(stats_path, env)
     env.training = False
     env.norm_reward = False
 
-    model = PPO.load("models13/ppo_model_6800000_steps.zip")
+    model = PPO.load("models16/ppo_model_7000000_steps.zip")
 
     with open(args.out_csv, mode='w', newline='') as file:
         writer = csv.writer(file)
@@ -108,7 +108,6 @@ def main():
                 net_ped_count, net_ped_time, ped_avg_wait,
                 cross_modal_fairness, intra_lane_fairness, p95_ped_wait
             ])
-            file.flush()
 
     print(f"Evaluation finished for {args.route_file}!")
     env.close()

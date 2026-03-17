@@ -2,10 +2,10 @@ import subprocess
 import os
 
 num_seeds = 10
-sim_dir = "simulation/low-demand-0.5x"
-results_dir = "evaluation_results/low-demand-0.5x/baseline_fixed"
+sim_dir = "simulation/regular-demand"
+results_dir = "evaluation-results/regular-demand/test"
 network_file = "simulation/grid-network.net.xml"
-marl_script = "evaluate_fixed.py"
+marl_script = "evaluate_marl.py"
 
 os.makedirs(results_dir, exist_ok=True)
 
@@ -14,8 +14,8 @@ print(f"Starting MARL evaluations for files in '{sim_dir}'...")
 for i in range(1, num_seeds + 1):
     seed_value = str(i)
     
-    veh_file = os.path.join(sim_dir, f"vehs0.5x_seed{seed_value}.rou.xml")
-    ped_file = os.path.join(sim_dir, f"peds0.5x_seed{seed_value}.rou.xml")
+    veh_file = os.path.join(sim_dir, f"vehs_regular_seed{seed_value}.rou.xml")
+    ped_file = os.path.join(sim_dir, f"peds_regular_seed{seed_value}.rou.xml")
     
     route_files_arg = f"{veh_file},{ped_file}"
     
@@ -29,7 +29,7 @@ for i in range(1, num_seeds + 1):
         "--net-file", network_file,
         "--route-file", route_files_arg,
         "--out-csv", out_csv,
-        #"--sumo-rl-out", sumo_rl_out
+        "--sumo-rl-out", sumo_rl_out
     ]
     
     result = subprocess.run(command, capture_output=True, text=True)
