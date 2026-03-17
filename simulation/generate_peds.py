@@ -4,7 +4,7 @@ import os
 num_files = 10
 network_file = "grid-network.net.xml"
 end_time = "3600"
-ped_rate = "7"
+ped_rate = "5"
 
 sumo_home = os.environ.get("SUMO_HOME")
 if not sumo_home:
@@ -18,7 +18,7 @@ print(f"Starting generation of {num_files} traffic files...")
 for i in range(1, num_files + 1):
     seed_value = str(i) 
     
-    output_file = f"peds_high_seed{seed_value}.rou.xml"
+    output_file = f"peds_extreme_seed{seed_value}.rou.xml"
     
     command = [
         "python3", random_trips_script,
