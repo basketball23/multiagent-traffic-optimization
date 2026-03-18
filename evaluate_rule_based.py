@@ -7,15 +7,16 @@ import numpy as np
 
 from utils import get_intersection_metrics
 
-MIN_GREEN_TIME = 15      
-MAX_GREEN_TIME = 50
+MIN_GREEN_TIME = 8
+MAX_GREEN_TIME = 35
 QUEUE_THRESHOLD = 3
-PEDESTRIAN_WEIGHT = 1    
+PEDESTRIAN_WEIGHT = 10   
+MAX_PED_WAIT_ALLOWANCE = 45 # Maximum seconds a pedestrian will wait before forcing a switch
 
 def run_multi_rule_based():
     """
-    runs the SUMO simulation using dynamic rule-based traffic lights.
-    acts as actuated baseline control group.
+    Runs the SUMO simulation using dynamic rule-based traffic lights.
+    Acts as actuated baseline control group.
     """
 
     parser = argparse.ArgumentParser(description="Run Rule-Based Baseline Evaluation")
@@ -83,25 +84,31 @@ def run_multi_rule_based():
                                     active_entities_on_green += traci.lane.getLastStepVehicleNumber(lane)
                                     unique_green_lanes.add(lane)
                         
+
+                        max_ped_wait_time = 0
                         ped_ids = traci.person.getIDList()
                         for p_id in ped_ids:
-                            if traci.person.getWaitingTime(p_id) > 0:
+                            wait_time = traci.person.getWaitingTime(p_id)
+                            if wait_time > 0:
                                 next_edge = traci.person.getNextEdge(p_id)
-                                if next_edge in unique_red_lanes:
+                                if any(next_edge in r_lane or r_lane in next_edge for r_lane in unique_red_lanes):
                                     waiting_entities_on_red += PEDESTRIAN_WEIGHT
+                                    if wait_time > max_ped_wait_time:
+                                        max_ped_wait_time = wait_time
                         
                         demand_on_red = waiting_entities_on_red > 0
                         queue_threshold_met = waiting_entities_on_red >= QUEUE_THRESHOLD
-                        green_is_empty = active_entities_on_green == 0
                         max_green_hit = phase_timers[target_light] >= MAX_GREEN_TIME
                         
+                        green_flow_dying = active_entities_on_green <= 1
+                        
                         force_switch = max_green_hit and demand_on_red
+                        gap_out_switch = queue_threshold_met and green_flow_dying
+                        low_demand_switch = demand_on_red and green_flow_dying
                         
-                        gap_out_switch = queue_threshold_met and green_is_empty
+                        pedestrian_override = max_ped_wait_time >= MAX_PED_WAIT_ALLOWANCE
                         
-                        low_demand_switch = demand_on_red and green_is_empty
-                        
-                        if force_switch or gap_out_switch or low_demand_switch:
+                        if force_switch or gap_out_switch or low_demand_switch or pedestrian_override:
                             next_phase = (current_phase + 1) % num_phases
                             traci.trafficlight.setPhase(target_light, next_phase)
                             phase_timers[target_light] = 0 
