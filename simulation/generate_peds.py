@@ -18,7 +18,7 @@ print(f"Starting generation of {num_files} traffic files...")
 for i in range(1, num_files + 1):
     seed_value = str(i) 
     
-    output_file = f"peds_extreme_seed{seed_value}.rou.xml"
+    output_file = f"peds_higher_seed{seed_value}.rou.xml"
     
     command = [
         "python3", random_trips_script,
