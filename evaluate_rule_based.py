@@ -8,7 +8,9 @@ import numpy as np
 from utils import get_intersection_metrics
 
 MIN_GREEN_TIME = 15      
+MAX_GREEN_TIME = 50
 QUEUE_THRESHOLD = 3
+PEDESTRIAN_WEIGHT = 1    
 
 def run_multi_rule_based():
     """
@@ -62,17 +64,44 @@ def run_multi_rule_based():
                 
                 if current_phase % 2 == 0:
                     if phase_timers[target_light] >= MIN_GREEN_TIME:
-                        waiting_entities = 0
+                        waiting_entities_on_red = 0
+                        active_entities_on_green = 0
+                        
                         state_string = traci.trafficlight.getRedYellowGreenState(target_light)
                         lanes = traci.trafficlight.getControlledLanes(target_light)
                         
-                        unique_lanes = set()
-                        for i, lane in enumerate(lanes):
-                            if state_string[i].lower() == 'r' and lane not in unique_lanes:
-                                waiting_entities += traci.lane.getLastStepHaltingNumber(lane)
-                                unique_lanes.add(lane)
+                        unique_red_lanes = set()
+                        unique_green_lanes = set()
                         
-                        if waiting_entities >= QUEUE_THRESHOLD:
+                        for i, lane in enumerate(lanes):
+                            if state_string[i].lower() in ('r', 'y'):
+                                if lane not in unique_red_lanes:
+                                    waiting_entities_on_red += traci.lane.getLastStepHaltingNumber(lane)
+                                    unique_red_lanes.add(lane)
+                            elif state_string[i].lower() in ('g', 'G'):
+                                if lane not in unique_green_lanes:
+                                    active_entities_on_green += traci.lane.getLastStepVehicleNumber(lane)
+                                    unique_green_lanes.add(lane)
+                        
+                        ped_ids = traci.person.getIDList()
+                        for p_id in ped_ids:
+                            if traci.person.getWaitingTime(p_id) > 0:
+                                next_edge = traci.person.getNextEdge(p_id)
+                                if next_edge in unique_red_lanes:
+                                    waiting_entities_on_red += PEDESTRIAN_WEIGHT
+                        
+                        demand_on_red = waiting_entities_on_red > 0
+                        queue_threshold_met = waiting_entities_on_red >= QUEUE_THRESHOLD
+                        green_is_empty = active_entities_on_green == 0
+                        max_green_hit = phase_timers[target_light] >= MAX_GREEN_TIME
+                        
+                        force_switch = max_green_hit and demand_on_red
+                        
+                        gap_out_switch = queue_threshold_met and green_is_empty
+                        
+                        low_demand_switch = demand_on_red and green_is_empty
+                        
+                        if force_switch or gap_out_switch or low_demand_switch:
                             next_phase = (current_phase + 1) % num_phases
                             traci.trafficlight.setPhase(target_light, next_phase)
                             phase_timers[target_light] = 0 
@@ -92,7 +121,6 @@ def run_multi_rule_based():
                 
                 all_lane_waits = []
                 
-                '''base metrics'''
                 for tl_id in tl_ids:
                     v_count, v_time, p_count, p_time = get_intersection_metrics(tl_id)
                     net_veh_count += v_count
@@ -107,7 +135,6 @@ def run_multi_rule_based():
                 veh_avg_wait = net_veh_time / net_veh_count if net_veh_count > 0 else 0
                 ped_avg_wait = net_ped_time / net_ped_count if net_ped_count > 0 else 0
 
-                '''intra & cross modal fairness'''
                 cross_modal_fairness = abs(ped_avg_wait - veh_avg_wait)
 
                 sum_waits = sum(all_lane_waits)
@@ -119,7 +146,6 @@ def run_multi_rule_based():
                 else:
                     intra_lane_fairness = 1.0
 
-                '''p95 wait time'''
                 ped_ids = traci.person.getIDList()
                 ped_waits = [traci.person.getWaitingTime(p_id) for p_id in ped_ids]
                 
