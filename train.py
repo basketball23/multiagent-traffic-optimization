@@ -8,7 +8,7 @@ from utils import NeighborAwareObservation, SaveVecNormalizeCallback, fair_wait_
 
 # saving model mid-training
 
-save_dir = "./models16_no_rew"
+save_dir = "./models17"
 custom_checkpoint_callback = SaveVecNormalizeCallback(
     save_freq=50000, 
     save_path=save_dir,
@@ -30,9 +30,9 @@ def main():
         route_file='simulation/vehs.rou.xml,simulation/peds.rou.xml',
         use_gui=False,
         num_seconds=3600,
-        reward_fn=vehicle_baseline_reward,
+        reward_fn=fair_wait_time_reward,
         observation_class=NeighborAwareObservation,
-        sumo_seed=42,
+        sumo_seed='random',
     )
 
     # used to make compatible
