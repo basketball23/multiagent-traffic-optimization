@@ -4,7 +4,7 @@ import os
 num_files = 10
 network_file = "grid-network.net.xml"
 end_time = "3600"
-period = "1.5"
+period = "1.6"
 fringe_factor = "10"
 
 sumo_home = os.environ.get("SUMO_HOME")

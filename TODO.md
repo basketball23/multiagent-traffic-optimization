@@ -1,11 +1,7 @@
-1. Retrain model with updated observation + reward function
-2. Decide whether to use custom observation function or base observation function
-
-3. retrain all baseline models (no pedestrian aware)
-
-4. Implement Max-Pressure algorithm baseline
+* incorporate fixed-timer into model deployment when demand becomes extreme
 
 
-5. Increase the number of pedestrians/vehicles in the simulation
-- Test demand modelling
-
+1. Fix plotting scripts to calculate accurate metrics
+2. Figure out analysis and final presentation
+3. Write abstract
+4. Use a real-world simulation environment (Seattle, Bellevue, etc) to test scalability

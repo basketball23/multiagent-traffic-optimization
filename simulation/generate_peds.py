@@ -4,7 +4,7 @@ import os
 num_files = 10
 network_file = "grid-network.net.xml"
 end_time = "3600"
-ped_rate = "5"
+ped_rate = "6"
 
 sumo_home = os.environ.get("SUMO_HOME")
 if not sumo_home:
