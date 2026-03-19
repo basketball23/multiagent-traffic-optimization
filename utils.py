@@ -1,4 +1,5 @@
 import numpy as np
+import math
 
 from gymnasium.spaces import Box
 from sumo_rl.environment.observations import ObservationFunction
@@ -9,150 +10,140 @@ import os
 from stable_baselines3.common.callbacks import BaseCallback
 
 
-NEIGHBORS_DICT = {
-    'B1': ['B2', 'C1'],
-    'B2': ['B1', 'C2'],
-    'C1': ['B1', 'C2'],
-    'C2': ['C1', 'B2'],
-}
-
-class NeighborAwareObservation(ObservationFunction):
-    '''
-    custom observation function to include observation states of neighboring intersection 
-    queue data and phase states to local intersections' observation state.
-    '''
+class NemaStandardizedObservation(ObservationFunction):
     def __init__(self, traffic_signal):
         super().__init__(traffic_signal)
         self.ts = traffic_signal
-
-        self.neighbors = NEIGHBORS_DICT.get(self.ts.id, [])
-
         self._setup_done = False
-        self.neighbor_lanes = {}
-        self.neighbor_lanes_lengths = {}
+        
+        # This will hold lists of lane IDs mapped to our 8 standard indices
+        # Indices: 0:NB_SR, 1:NB_L, 2:EB_SR, 3:EB_L, 4:SB_SR, 5:SB_L, 6:WB_SR, 7:WB_L
+        self.movement_lanes = {i: [] for i in range(8)}
 
-        self.neighbor_num_phases = {}
+    def _get_bearing(self, edge_id):
+        """Calculates the compass bearing of an incoming edge pointing toward the junction."""
+        shape = self.ts.sumo.edge.getShape(edge_id)
+        # Get the second to last and last point of the edge
+        x1, y1 = shape[-2]
+        x2, y2 = shape[-1]
+        
+        # Calculate angle and convert to compass bearing (0 is North, 90 is East)
+        angle_rad = math.atan2(x2 - x1, y2 - y1)
+        bearing = (math.degrees(angle_rad) + 360) % 360
+        return bearing
 
-        self.local_ped_edges = []
+    def _determine_approach_direction(self, bearing):
+        """Maps a compass bearing to an Approach Direction (N, E, S, W)."""
+        # Note: If an edge is pointing South (bearing ~180), the approach is FROM the North.
+        if 135 <= bearing < 225:
+            return "N" # Northbound approach (traffic moving South)
+        elif 225 <= bearing < 315:
+            return "E" # Eastbound approach (traffic moving West)
+        elif 315 <= bearing <= 360 or 0 <= bearing < 45:
+            return "S" # Southbound approach (traffic moving North)
+        elif 45 <= bearing < 135:
+            return "W" # Westbound approach (traffic moving East)
 
     def _setup(self):
-        '''
-        filters neighboring lanes to only include those that feed traffic
-        toward the local intersection, and dynamically counts neighbor green phases.
-        '''
+        """Maps arbitrary SUMO lanes to the 8 standard movements."""
         if self._setup_done:
             return
 
-        local_incoming_lanes = self.ts.sumo.trafficlight.getControlledLanes(self.ts.id)
-        local_incoming_edges = set([self.ts.sumo.lane.getEdgeID(lane) for lane in local_incoming_lanes])
+        incoming_lanes = self.ts.sumo.trafficlight.getControlledLanes(self.ts.id)
+        # Remove duplicates (SUMO sometimes lists lanes multiple times for different phases)
+        incoming_lanes = list(dict.fromkeys(incoming_lanes))
 
-        for neighbor_id in self.neighbors:
+        for lane in incoming_lanes:
+            edge_id = self.ts.sumo.lane.getEdgeID(lane)
+            bearing = self._get_bearing(edge_id)
+            approach_dir = self._determine_approach_direction(bearing)
 
-            all_neighbor_lanes = list(dict.fromkeys(self.ts.sumo.trafficlight.getControlledLanes(neighbor_id)))
+            # Look at where this lane goes to determine if it's a left turn or straight/right
+            links = self.ts.sumo.lane.getLinks(lane)
+            is_left_turn = False
             
-            feeding_lanes = []
-            
-            for lane in all_neighbor_lanes:
-                links = self.ts.sumo.lane.getLinks(lane)
-                
-                for link in links:
-                    approached_lane = link[0]
-                    if approached_lane:
-                        approached_edge = self.ts.sumo.lane.getEdgeID(approached_lane)
-                        
-                        if approached_edge in local_incoming_edges:
-                            feeding_lanes.append(lane)
-                            break
-                            
-            self.neighbor_lanes[neighbor_id] = feeding_lanes
-            
-            for lane in feeding_lanes:
-                self.neighbor_lanes_lengths[lane] = self.ts.sumo.lane.getLength(lane)
+            for link in links:
+                # link[2] contains the direction string ('s'=straight, 'l'=left, 'L'=partially left, 'r'=right)
+                if link[2] in ['l', 'L']:
+                    is_left_turn = True
+                    break
 
-            logic = self.ts.sumo.trafficlight.getCompleteRedYellowGreenDefinition(neighbor_id)[0]
-            green_phases = [
-                p for p in logic.phases 
-                if "y" not in p.state and ("g" in p.state.lower() or "G" in p.state)
-            ]
-            self.neighbor_num_phases[neighbor_id] = len(green_phases)
+            # Map to our 8 indices based on Direction and Turn type
+            if approach_dir == "N":
+                idx = 1 if is_left_turn else 0
+            elif approach_dir == "E":
+                idx = 3 if is_left_turn else 2
+            elif approach_dir == "S":
+                idx = 5 if is_left_turn else 4
+            elif approach_dir == "W":
+                idx = 7 if is_left_turn else 6
 
-        all_edges = self.ts.sumo.edge.getIDList()
-        incoming_edges = set([self.ts.sumo.lane.getEdgeID(lane) for lane in self.ts.lanes])
+            self.movement_lanes[idx].append(lane)
 
-        for e in all_edges:
-            if '_w' in e or '_c' in e: 
-                if self.ts.id in e or any(inc_edge in e for inc_edge in incoming_edges):
-                    self.local_ped_edges.append(e)
-                
         self._setup_done = True
 
     def __call__(self):
-        '''
-        fetch observation states
-        '''
+        """Fetches the standardized 8-movement observation state."""
         self._setup()
 
-        phase_id = [1 if self.ts.green_phase == i else 0 for i in range(self.ts.num_green_phases)]
-        min_green = [0 if self.ts.time_since_last_phase_change < self.ts.min_green + self.ts.yellow_time else 1]
-        density = self.ts.get_lanes_density()
-        queue = self.ts.get_lanes_queue()
+        # Initialize fixed-size arrays for our metrics
+        standardized_density = np.zeros(8, dtype=np.float32)
+        standardized_queue = np.zeros(8, dtype=np.float32)
 
-        obs = phase_id + min_green + density + queue
-
-        '''get neighbor agent states'''
-
-        for neighbor_id in self.neighbors:
-            neighbor_ts = self.ts.env.traffic_signals[neighbor_id]
-            num_phases = neighbor_ts.num_green_phases
-
-            neighbor_phase = [1 if neighbor_ts.green_phase == i else 0 for i in range(num_phases)]
-
-            # include neighbor phase
-            obs.extend(neighbor_phase)
-
-            for lane in self.neighbor_lanes[neighbor_id]:
-                halting = self.ts.sumo.lane.getLastStepHaltingNumber(lane)
-                veh_count = self.ts.sumo.lane.getLastStepVehicleNumber(lane)
-                length = self.neighbor_lanes_lengths[lane]
-
-                normalized_queue = halting / (length / 5.0)
-                normalized_density = veh_count / (length / 7.5)
-
-                # include neighbor density and queue
-                obs.append(min(1.0, normalized_queue))
-                obs.append(min(1.0, normalized_density))
-
-        '''fetch pedestrian states for observation'''
-        MAX_PEDESTRIANS = 10.0 
-
-        for edge in self.local_ped_edges:
-            pedestrian_ids = self.ts.sumo.edge.getLastStepPersonIDs(edge)
-            count = len(pedestrian_ids)
+        for movement_idx in range(8):
+            lanes = self.movement_lanes[movement_idx]
             
-            # normalize the count to a 0.0 - 1.0 scale
-            normalized_count = min(1.0, count / MAX_PEDESTRIANS)
-            obs.append(normalized_count)
+            if not lanes:
+                # Missing leg or missing turn lane; leave as 0.0
+                continue
+            
+            total_density = 0.0
+            total_queue = 0.0
+            
+            for lane in lanes:
+                # Add domain randomization noise here if you want to bridge sim-to-real!
+                veh_count = self.ts.sumo.lane.getLastStepVehicleNumber(lane)
+                halting = self.ts.sumo.lane.getLastStepHaltingNumber(lane)
+                length = self.ts.sumo.lane.getLength(lane)
+                
+                # Normalize metrics
+                total_density += min(1.0, veh_count / (length / 7.5))
+                total_queue += min(1.0, halting / (length / 5.0))
+            
+            # Average the metrics if multiple lanes exist for this single movement
+            standardized_density[movement_idx] = total_density / len(lanes)
+            standardized_queue[movement_idx] = total_queue / len(lanes)
 
-        return np.array(obs, dtype=np.float32)
+        # Force the phase array to always be length 8
+        MAX_PHASES = 8
+        phase_id = [0] * MAX_PHASES
+        
+        # Only set the current phase to 1 if it fits within our max bounds
+        # (This prevents index errors if SUMO throws a weird phase at us)
+        if self.ts.green_phase < MAX_PHASES:
+            phase_id[self.ts.green_phase] = 1
+            
+        min_green = [0 if self.ts.time_since_last_phase_change < self.ts.min_green + self.ts.yellow_time else 1]
+
+        # Combine into a flat, predictable, 1D array
+        obs = np.concatenate([
+            phase_id,
+            min_green,
+            standardized_density,
+            standardized_queue
+        ])
+
+        return obs.astype(np.float32)
 
     def observation_space(self):
-        '''
-        return the dynamically sized observation space
-        '''
+        """Returns a fixed-size Box space."""
         self._setup()
         
-        local_len = self.ts.num_green_phases + (2 * len(self.ts.lanes)) + 1
+        # 8 (fixed max phases) + 1 (min_green) + 8 (density) + 8 (queue)
+        MAX_PHASES = 8
+        total_len = MAX_PHASES + 1 + 8 + 8
         
-        neighbor_len = 0
-        for neighbor_id in self.neighbors:
-            neighbor_len += 2 * len(self.neighbor_lanes[neighbor_id])
-
-            neighbor_len += self.neighbor_num_phases[neighbor_id]
-        
-        ped_len = len(self.local_ped_edges)
-        
-        total_len = local_len + neighbor_len + ped_len
-
+        from gymnasium.spaces import Box
         return Box(low=0.0, high=1.0, shape=(total_len,), dtype=np.float32)
     
 
@@ -187,10 +178,10 @@ def fair_wait_time_reward(traffic_signal):
                                            (traffic_signal.id in e or any(inc in e for inc in incoming_edges))]
         
         traffic_signal.prev_stats = {
-            'veh_delay': 0,
-            'ped_delay': 0,
-            'max_lane_wait': 0,
-            'p95_ped': 0,
+            'avg_veh': 0.0,
+            'avg_ped': 0.0,
+            'max_lane_wait': 0.0,
+            'p95_ped': 0.0,
             'equity_idx': 1.0,
             'ema_veh': 0.0,
             'ema_ped': 0.0,
@@ -198,14 +189,13 @@ def fair_wait_time_reward(traffic_signal):
             'phase': None
         }
 
-
     '''vehicle metrics'''
     lane_wait_times = traffic_signal.get_accumulated_waiting_time_per_lane()
     vehicle_waiting_count = traffic_signal.get_total_queued()
     vehicle_delay = sum(lane_wait_times)
 
     '''max lane wait'''
-    max_lane_wait = max(lane_wait_times) if lane_wait_times else 0
+    max_lane_wait = max(lane_wait_times) if lane_wait_times else 0.0
 
     '''pedestrian metrics'''
     ped_wait_times = []
@@ -215,7 +205,7 @@ def fair_wait_time_reward(traffic_signal):
             ped_wait_times.append(traffic_signal.sumo.person.getWaitingTime(p_id))
     
     pedestrian_delay = sum(ped_wait_times)
-    p95_ped_wait = np.percentile(ped_wait_times, 95) if ped_wait_times else 0
+    p95_ped_wait = np.percentile(ped_wait_times, 95) if ped_wait_times else 0.0
 
     '''averages and EMA Smoothing'''
     avg_veh = vehicle_delay / vehicle_waiting_count if vehicle_waiting_count > 0 else 0.0
@@ -237,45 +227,50 @@ def fair_wait_time_reward(traffic_signal):
     # total vehicles approaching vs total vehicles departing
     in_count = sum(traffic_signal.sumo.edge.getLastStepVehicleNumber(e) for e in traffic_signal.incoming_edges)
     out_count = sum(traffic_signal.sumo.edge.getLastStepVehicleNumber(e) for e in traffic_signal.outgoing_edges)
-    current_pressure = abs(in_count - out_count)
+    
+    # CHANGED: Normalize pressure by the total number of edges (lanes)
+    total_edges = len(traffic_signal.incoming_edges) + len(traffic_signal.outgoing_edges)
+    current_pressure = abs(in_count - out_count) / max(1, total_edges)
 
     '''calculate and clip deltas'''
-    # clip to prevent massive reward spikes
-    v_delay_delta = np.clip(traffic_signal.prev_stats['veh_delay'] - vehicle_delay, -50, 50)
-    p_delay_delta = np.clip(traffic_signal.prev_stats['ped_delay'] - pedestrian_delay, -50, 50)
-    max_lane_delta = np.clip(traffic_signal.prev_stats['max_lane_wait'] - max_lane_wait, -20, 20)
-    p95_delta = np.clip(traffic_signal.prev_stats['p95_ped'] - p95_ped_wait, -20, 20)
+    # CHANGED: Calculate deltas based on averages, clipped to realistic per-step changes
+    v_delay_delta = np.clip(traffic_signal.prev_stats['avg_veh'] - avg_veh, -5.0, 5.0)
+    p_delay_delta = np.clip(traffic_signal.prev_stats['avg_ped'] - avg_ped, -5.0, 5.0)
+    
+    max_lane_delta = np.clip(traffic_signal.prev_stats['max_lane_wait'] - max_lane_wait, -10.0, 10.0)
+    p95_delta = np.clip(traffic_signal.prev_stats['p95_ped'] - p95_ped_wait, -10.0, 10.0)
+    
     equity_delta = current_equity_idx - traffic_signal.prev_stats['equity_idx']
-    pressure_delta = np.clip(traffic_signal.prev_stats['pressure'] - current_pressure, -30, 30)
+    pressure_delta = np.clip(traffic_signal.prev_stats['pressure'] - current_pressure, -2.0, 2.0)
 
     '''switching penalty'''
     current_phase = traffic_signal.green_phase
     switching_penalty = 1.0 if (traffic_signal.prev_stats['phase'] is not None and 
                                current_phase != traffic_signal.prev_stats['phase']) else 0.0
 
-    w_veh = 2.0
-    w_ped = 1.5
-    w_fair = 1.0
+    '''Reward Calculation'''
+    w_veh = 1.0
+    w_ped = 1.0
+    w_fair = 0.5
     w_equity = 3.0
-    w_switch = 0.8
+    w_switch = 0.5
     w_pressure = 1.5
 
     reward = (
-        (w_veh * (v_delay_delta / 20.0)) + 
-        (w_ped * (p_delay_delta / 20.0)) + 
-        (w_fair * (max_lane_delta / 10.0)) + 
-        (w_fair * (p95_delta / 10.0)) +
+        (w_veh * v_delay_delta) + 
+        (w_ped * p_delay_delta) + 
+        (w_fair * max_lane_delta) + 
+        (w_fair * p95_delta) +
         (w_equity * equity_delta) +
-        (w_pressure * (pressure_delta / 15.0)) -
+        (w_pressure * pressure_delta) -
         (w_switch * switching_penalty)
     )
 
-    # final overall reward clipping to keep the critic stable
-    reward = np.clip(reward, -15.0, 15.0)
+    reward = np.clip(reward, -10.0, 10.0)
 
     traffic_signal.prev_stats = {
-        'veh_delay': vehicle_delay,
-        'ped_delay': pedestrian_delay,
+        'avg_veh': avg_veh,
+        'avg_ped': avg_ped,
         'max_lane_wait': max_lane_wait,
         'p95_ped': p95_ped_wait,
         'equity_idx': current_equity_idx,
@@ -286,7 +281,6 @@ def fair_wait_time_reward(traffic_signal):
     }
 
     return reward
-
 
 def vehicle_baseline_reward(traffic_signal):
     """
