@@ -20,12 +20,12 @@ class NemaStandardizedObservation(ObservationFunction):
         # Indices: 0:NB_SR, 1:NB_L, 2:EB_SR, 3:EB_L, 4:SB_SR, 5:SB_L, 6:WB_SR, 7:WB_L
         self.movement_lanes = {i: [] for i in range(8)}
 
-    def _get_bearing(self, edge_id):
+    def _get_bearing(self, lane_id):
         """Calculates the compass bearing of an incoming edge pointing toward the junction."""
-        shape = self.ts.sumo.edge.getShape(edge_id)
+        shape = self.ts.sumo.lane.getShape(lane_id)
         # Get the second to last and last point of the edge
-        x1, y1 = shape[-2]
-        x2, y2 = shape[-1]
+        x1, y1 = shape[-2][:2]
+        x2, y2 = shape[-1][:2]
         
         # Calculate angle and convert to compass bearing (0 is North, 90 is East)
         angle_rad = math.atan2(x2 - x1, y2 - y1)
@@ -55,7 +55,7 @@ class NemaStandardizedObservation(ObservationFunction):
 
         for lane in incoming_lanes:
             edge_id = self.ts.sumo.lane.getEdgeID(lane)
-            bearing = self._get_bearing(edge_id)
+            bearing = self._get_bearing(lane)
             approach_dir = self._determine_approach_direction(bearing)
 
             # Look at where this lane goes to determine if it's a left turn or straight/right

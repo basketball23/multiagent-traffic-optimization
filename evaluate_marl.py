@@ -4,7 +4,7 @@ import supersuit as ss
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import VecNormalize
 
-from utils import NeighborAwareObservation, fair_wait_time_reward, get_intersection_metrics 
+from utils import NemaStandardizedObservation, fair_wait_time_reward, get_intersection_metrics 
 import traci
 import csv
 import numpy as np
@@ -24,7 +24,7 @@ def main():
         use_gui=False, 
         num_seconds=3600,
         reward_fn=fair_wait_time_reward,
-        observation_class=NeighborAwareObservation,
+        observation_class=NemaStandardizedObservation,
     )
 
     env.unwrapped.render_mode = None
@@ -32,12 +32,12 @@ def main():
     env = ss.pettingzoo_env_to_vec_env_v1(env)
     env = ss.concat_vec_envs_v1(env, num_vec_envs=1, num_cpus=1, base_class='stable_baselines3')
 
-    stats_path = "models16/vec_normalize_7000000_steps.pkl" 
+    stats_path = "models18/vec_normalize_9000000_steps.pkl" 
     env = VecNormalize.load(stats_path, env)
     env.training = False
     env.norm_reward = False
 
-    model = PPO.load("models16/ppo_model_7000000_steps.zip")
+    model = PPO.load("models18/ppo_model_9000000_steps.zip")
 
     with open(args.out_csv, mode='w', newline='') as file:
         writer = csv.writer(file)
