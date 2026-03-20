@@ -4,7 +4,7 @@ import supersuit as ss
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import VecNormalize
 
-from utils import NemaStandardizedObservation, fair_wait_time_reward, get_intersection_metrics 
+from utils import NeighborAwareObservation, fair_wait_time_reward, get_intersection_metrics 
 import traci
 import csv
 import numpy as np
@@ -24,7 +24,7 @@ def main():
         use_gui=False, 
         num_seconds=3600,
         reward_fn=fair_wait_time_reward,
-        observation_class=NemaStandardizedObservation,
+        observation_class=NeighborAwareObservation,
     )
 
     env.unwrapped.render_mode = None
@@ -45,12 +45,14 @@ def main():
             'step', 'vehicle_total_stopped', 'vehicle_total_waiting_time',
             'vehicle_average_waiting_time', 'pedestrian_total_stopped',
             'pedestrian_total_waiting_time', 'pedestrian_average_waiting_time',
-            'cross_modal_fairness', 'intra_lane_fairness', 'p95_ped_wait_time'
+            'cross_modal_fairness', 'intra_lane_fairness' 
         ])
 
         obs = env.reset()
         done = False
         sim_time = 0 
+        
+        pedestrian_total_waits = {}
 
         while not done:
             action, _states = model.predict(obs, deterministic=True)
@@ -78,8 +80,7 @@ def main():
                 lane_waits = [traci.lane.getWaitingTime(lane) for lane in lanes]
                 all_lane_waits.extend(lane_waits)
 
-            '''cross modal fairness using abs of averages'''
-
+            '''cross modal fairness using abs of instantaneous averages'''
             veh_avg_wait = net_veh_time / net_veh_count if net_veh_count > 0 else 0
             ped_avg_wait = net_ped_time / net_ped_count if net_ped_count > 0 else 0
 
@@ -94,23 +95,52 @@ def main():
             else:
                 intra_lane_fairness = 1.0
 
-            '''p95 pedestrian wait time'''
             ped_ids = traci.person.getIDList()
-            ped_waits = [traci.person.getWaitingTime(p_id) for p_id in ped_ids]
-            
-            if len(ped_waits) > 0:
-                p95_ped_wait = np.percentile(ped_waits, 95)
-            else:
-                p95_ped_wait = 0.0
+            for p_id in ped_ids:
+                current_wait = traci.person.getWaitingTime(p_id)
+                
+                if p_id not in pedestrian_total_waits:
+                    pedestrian_total_waits[p_id] = {'last_seen_wait': 0, 'total_accumulated': 0}
+                
+                if current_wait > pedestrian_total_waits[p_id]['last_seen_wait']:
+                    delta = current_wait - pedestrian_total_waits[p_id]['last_seen_wait']
+                    pedestrian_total_waits[p_id]['total_accumulated'] += delta
+                
+                pedestrian_total_waits[p_id]['last_seen_wait'] = current_wait
 
             writer.writerow([
                 sim_time, net_veh_count, net_veh_time, veh_avg_wait,
                 net_ped_count, net_ped_time, ped_avg_wait,
-                cross_modal_fairness, intra_lane_fairness, p95_ped_wait
+                cross_modal_fairness, intra_lane_fairness
             ])
 
     print(f"Evaluation finished for {args.route_file}!")
     env.close()
+
+    print("\n" + "="*50)
+    print("Calculating True Pedestrian Metrics via TraCI Tracking...")
+    
+    if len(pedestrian_total_waits) > 0:
+        all_final_waits = [data['total_accumulated'] for data in pedestrian_total_waits.values()]
+        true_avg = np.mean(all_final_waits)
+        true_p95 = np.percentile(all_final_waits, 95)
+        
+        print(f"Total Pedestrians Tracked:  {len(all_final_waits)}")
+        print(f"True Average Pedestrian Wait: {true_avg:.2f} seconds")
+        print(f"True 95th-Percentile Wait:    {true_p95:.2f} seconds")
+
+        summary_file = args.out_csv.replace(".csv", "_FINAL_SUMMARY.txt")
+        with open(summary_file, "w") as f:
+            f.write(f"MARL Evaluation for: {args.route_file}\n")
+            f.write("-" * 50 + "\n")
+            f.write(f"Total Pedestrians Tracked:          {len(all_final_waits)}\n")
+            f.write(f"True Average Pedestrian Wait Time:  {true_avg:.2f} seconds\n")
+            f.write(f"True 95th-Percentile Ped Wait Time: {true_p95:.2f} seconds\n")
+            
+        print(f"\nFinal summary metrics saved to: {summary_file}")
+    else:
+        print("No pedestrians spawned during the simulation.")
+    print("="*50 + "\n")
 
 if __name__ == "__main__":
     main()

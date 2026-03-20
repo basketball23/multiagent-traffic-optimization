@@ -1,0 +1,5 @@
+Rule-Based Baseline Evaluation for: simulation/high-demand/vehs_high_seed8.rou.xml,simulation/high-demand/peds_high_seed8.rou.xml
+--------------------------------------------------
+Total Pedestrians Tracked:          514
+True Average Pedestrian Wait Time:  17.07 seconds
+True 95th-Percentile Ped Wait Time: 51.00 seconds
