@@ -1,0 +1,12 @@
+FIXED-TIMER Baseline Summary: simulation/low-demand/vehs_low_seed6.rou.xml,simulation/low-demand/peds_low_seed6.rou.xml
+========================================
+Completed Vehicle Trips:    882
+True Avg Veh Wait Time:     26.27s
+True 95th Percentile Veh:   71.00s
+----------------------------------------
+Pedestrians Tracked:        240
+True Avg Ped Wait Time:     16.57s
+True 95th Percentile Ped:   51.05s
+----------------------------------------
+FINAL CROSS-MODAL GAP:      9.71s
+TRUE INTRA-LANE FAIRNESS:   0.1551

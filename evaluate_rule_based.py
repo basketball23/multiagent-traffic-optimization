@@ -11,7 +11,7 @@ MIN_GREEN_TIME = 8
 MAX_GREEN_TIME = 35
 QUEUE_THRESHOLD = 3
 PEDESTRIAN_WEIGHT = 10   
-MAX_PED_WAIT_ALLOWANCE = 45 # Maximum seconds a pedestrian will wait before forcing a switch
+MAX_PED_WAIT_ALLOWANCE = 45
 
 def run_multi_rule_based():
     """
@@ -29,6 +29,7 @@ def run_multi_rule_based():
         "sumo", 
         "-n", args.net_file, 
         "-r", args.route_file,
+        "--waiting-time-memory", "10000",
         "--no-warnings", "true"
     ]
     traci.start(sumoCmd)
@@ -41,6 +42,8 @@ def run_multi_rule_based():
     veh_tracking = {}
     ped_tracking = {}
     lane_tracking = {}
+    
+    arrived_vehicles = set()
     
     with open(args.out_csv, mode='w', newline='') as file:
         writer = csv.writer(file)
@@ -55,9 +58,10 @@ def run_multi_rule_based():
         while step < 3600:
             traci.simulationStep()
             
-            # --- NEW: Track True Wait Times (Delta Method) ---
+            arrived_vehicles.update(traci.simulation.getArrivedIDList())
+            
             for v_id in traci.vehicle.getIDList():
-                w = traci.vehicle.getWaitingTime(v_id)
+                w = traci.vehicle.getAccumulatedWaitingTime(v_id)
                 if v_id not in veh_tracking:
                     veh_tracking[v_id] = {'last': 0, 'total': 0}
                 if w > veh_tracking[v_id]['last']:
@@ -78,7 +82,6 @@ def run_multi_rule_based():
                 if w > ped_tracking[p_id]['last']:
                     ped_tracking[p_id]['total'] += (w - ped_tracking[p_id]['last'])
                 ped_tracking[p_id]['last'] = w
-            # -------------------------------------------------
 
             tl_ids = traci.trafficlight.getIDList()
             
@@ -150,7 +153,7 @@ def run_multi_rule_based():
                         traci.trafficlight.setPhaseDuration(target_light, 1000)
                         phase_timers[target_light] = 0
 
-            # Snapshot tracking every 5 seconds (Matching RL script)
+            # Snapshot tracking every 5 seconds
             if step % 5 == 0:
                 net_veh_count = 0
                 net_veh_time = 0
@@ -168,7 +171,6 @@ def run_multi_rule_based():
 
                     lanes = list(set(traci.trafficlight.getControlledLanes(tl_id)))
                     
-                    # --- NEW: Register lanes for zero-delay tracking ---
                     for lane in lanes:
                         if lane not in lane_tracking:
                             lane_tracking[lane] = 0.0
@@ -209,13 +211,18 @@ def run_multi_rule_based():
     traci.close()
     print("Rule-Based Simulation Complete.")
 
-    # --- NEW: FINAL SYSTEM-WIDE METRICS ---
-    def get_stats(tracking_dict):
+    def get_stats(tracking_dict, arrived_set=None):
         if not tracking_dict: return 0.0, 0.0, 0
-        totals = [d['total'] for d in tracking_dict.values()]
+        
+        if arrived_set is not None:
+            totals = [d['total'] for v_id, d in tracking_dict.items() if v_id in arrived_set]
+        else:
+            totals = [d['total'] for d in tracking_dict.values()]
+            
+        if not totals: return 0.0, 0.0, 0
         return np.mean(totals), np.percentile(totals, 95), len(totals)
 
-    v_avg, v_95, v_count = get_stats(veh_tracking)
+    v_avg, v_95, v_count = get_stats(veh_tracking, arrived_vehicles)
     p_avg, p_95, p_count = get_stats(ped_tracking)
     cross_modal_gap = abs(v_avg - p_avg)
 
@@ -231,7 +238,7 @@ def run_multi_rule_based():
     with open(summary_file, "w") as f:
         f.write(f"RULE-BASED Baseline Summary: {args.route_file}\n")
         f.write("="*40 + "\n")
-        f.write(f"Total Vehicles Tracked:     {v_count}\n")
+        f.write(f"Completed Vehicle Trips:    {v_count}\n")
         f.write(f"True Avg Veh Wait Time:     {v_avg:.2f}s\n")
         f.write(f"True 95th Percentile Veh:   {v_95:.2f}s\n")
         f.write("-" * 40 + "\n")

@@ -8,21 +8,17 @@ import numpy as np
 from utils import get_intersection_metrics
 
 def run_fixed_timer():
-    """
-    runs the SUMO simulation using the default fixed-timer traffic lights.
-    acts as absolute baseline control group
-    """
-
     parser = argparse.ArgumentParser(description="Run Fixed-Timer Baseline Evaluation")
-    parser.add_argument("--net-file", type=str, required=True, help="Path to the network file")
-    parser.add_argument("--route-file", type=str, required=True, help="Comma-separated route files")
-    parser.add_argument("--out-csv", type=str, required=True, help="Path to save the output CSV")
+    parser.add_argument("--net-file", type=str, required=True)
+    parser.add_argument("--route-file", type=str, required=True)
+    parser.add_argument("--out-csv", type=str, required=True)
     args = parser.parse_args()
 
     sumoCmd = [
         "sumo", 
         "-n", args.net_file, 
         "-r", args.route_file,
+        "--waiting-time-memory", "10000",
         "--no-warnings", "true"
     ]
     traci.start(sumoCmd)
@@ -34,10 +30,11 @@ def run_fixed_timer():
     veh_tracking = {}
     ped_tracking = {}
     lane_tracking = {}
+    
+    arrived_vehicles = set()
 
     with open(args.out_csv, mode='w', newline='') as file:
         writer = csv.writer(file)
-
         writer.writerow([
             'step', 'vehicle_total_stopped', 'vehicle_total_waiting_time',
             'vehicle_average_waiting_time', 'pedestrian_total_stopped',
@@ -47,11 +44,15 @@ def run_fixed_timer():
 
         while step < 3600:
             traci.simulationStep()
+            
+            arrived_vehicles.update(traci.simulation.getArrivedIDList())
 
             for v_id in traci.vehicle.getIDList():
-                w = traci.vehicle.getWaitingTime(v_id)
+                w = traci.vehicle.getAccumulatedWaitingTime(v_id) 
+                
                 if v_id not in veh_tracking:
                     veh_tracking[v_id] = {'last': 0, 'total': 0}
+
                 if w > veh_tracking[v_id]['last']:
                     delta = w - veh_tracking[v_id]['last']
                     veh_tracking[v_id]['total'] += delta
@@ -81,7 +82,6 @@ def run_fixed_timer():
                 
                 all_lane_waits = []
 
-                '''base metrics'''
                 for tl_id in tl_ids:
                     v_count, v_time, p_count, p_time = get_intersection_metrics(tl_id)
                     net_veh_count += v_count
@@ -100,10 +100,8 @@ def run_fixed_timer():
 
                 veh_avg_wait = net_veh_time / net_veh_count if net_veh_count > 0 else 0
                 ped_avg_wait = net_ped_time / net_ped_count if net_ped_count > 0 else 0
-
                 cross_modal_fairness = abs(ped_avg_wait - veh_avg_wait)
 
-                '''intra lane fairness'''
                 sum_waits = sum(all_lane_waits)
                 sum_sq_waits = sum(w**2 for w in all_lane_waits)
                 n_lanes = len(all_lane_waits)
@@ -115,11 +113,7 @@ def run_fixed_timer():
 
                 ped_ids = traci.person.getIDList()
                 ped_waits = [traci.person.getWaitingTime(p_id) for p_id in ped_ids]
-                
-                if len(ped_waits) > 0:
-                    p95_ped_wait = np.percentile(ped_waits, 95)
-                else:
-                    p95_ped_wait = 0.0
+                p95_ped_wait = np.percentile(ped_waits, 95) if len(ped_waits) > 0 else 0.0
 
                 writer.writerow([
                     step, net_veh_count, net_veh_time, veh_avg_wait,
@@ -132,13 +126,18 @@ def run_fixed_timer():
     traci.close()
     print(f"Fixed-Timer Baseline Simulation Complete.")
 
-    # --- NEW: FINAL SYSTEM-WIDE METRICS ---
-    def get_stats(tracking_dict):
+    def get_stats(tracking_dict, arrived_set=None):
         if not tracking_dict: return 0.0, 0.0, 0
-        totals = [d['total'] for d in tracking_dict.values()]
+        
+        if arrived_set is not None:
+            totals = [d['total'] for v_id, d in tracking_dict.items() if v_id in arrived_set]
+        else:
+            totals = [d['total'] for d in tracking_dict.values()]
+            
+        if not totals: return 0.0, 0.0, 0
         return np.mean(totals), np.percentile(totals, 95), len(totals)
 
-    v_avg, v_95, v_count = get_stats(veh_tracking)
+    v_avg, v_95, v_count = get_stats(veh_tracking, arrived_vehicles)
     p_avg, p_95, p_count = get_stats(ped_tracking)
     cross_modal_gap = abs(v_avg - p_avg)
 
@@ -154,11 +153,11 @@ def run_fixed_timer():
     with open(summary_file, "w") as f:
         f.write(f"FIXED-TIMER Baseline Summary: {args.route_file}\n")
         f.write("="*40 + "\n")
-        f.write(f"Total Vehicles Tracked:     {v_count}\n")
+        f.write(f"Completed Vehicle Trips:    {v_count}\n")
         f.write(f"True Avg Veh Wait Time:     {v_avg:.2f}s\n")
         f.write(f"True 95th Percentile Veh:   {v_95:.2f}s\n")
         f.write("-" * 40 + "\n")
-        f.write(f"Total Pedestrians Tracked:  {p_count}\n")
+        f.write(f"Pedestrians Tracked:        {p_count}\n")
         f.write(f"True Avg Ped Wait Time:     {p_avg:.2f}s\n")
         f.write(f"True 95th Percentile Ped:   {p_95:.2f}s\n")
         f.write("-" * 40 + "\n")
