@@ -27,7 +27,13 @@ def run_fixed_timer():
     ]
     traci.start(sumoCmd)
 
+    print(f"Running Fixed-Timer Control for {args.route_file}...")
+
     step = 0
+
+    veh_tracking = {}
+    ped_tracking = {}
+    lane_tracking = {}
 
     with open(args.out_csv, mode='w', newline='') as file:
         writer = csv.writer(file)
@@ -41,6 +47,29 @@ def run_fixed_timer():
 
         while step < 3600:
             traci.simulationStep()
+
+            for v_id in traci.vehicle.getIDList():
+                w = traci.vehicle.getWaitingTime(v_id)
+                if v_id not in veh_tracking:
+                    veh_tracking[v_id] = {'last': 0, 'total': 0}
+                if w > veh_tracking[v_id]['last']:
+                    delta = w - veh_tracking[v_id]['last']
+                    veh_tracking[v_id]['total'] += delta
+                    
+                    lane_id = traci.vehicle.getLaneID(v_id)
+                    if lane_id not in lane_tracking:
+                        lane_tracking[lane_id] = 0.0
+                    lane_tracking[lane_id] += delta
+                    
+                veh_tracking[v_id]['last'] = w
+
+            for p_id in traci.person.getIDList():
+                w = traci.person.getWaitingTime(p_id)
+                if p_id not in ped_tracking:
+                    ped_tracking[p_id] = {'last': 0, 'total': 0}
+                if w > ped_tracking[p_id]['last']:
+                    ped_tracking[p_id]['total'] += (w - ped_tracking[p_id]['last'])
+                ped_tracking[p_id]['last'] = w
 
             if step % 5 == 0:
                 tl_ids = traci.trafficlight.getIDList()
@@ -61,6 +90,11 @@ def run_fixed_timer():
                     net_ped_time += p_time
                     
                     lanes = list(set(traci.trafficlight.getControlledLanes(tl_id)))
+                    
+                    for lane in lanes:
+                        if lane not in lane_tracking:
+                            lane_tracking[lane] = 0.0
+                            
                     lane_waits = [traci.lane.getWaitingTime(lane) for lane in lanes]
                     all_lane_waits.extend(lane_waits)
 
@@ -96,7 +130,43 @@ def run_fixed_timer():
             step += 1
 
     traci.close()
-    print(f"Fixed-Timer Baseline Complete for {args.route_file}.")
+    print(f"Fixed-Timer Baseline Simulation Complete.")
+
+    # --- NEW: FINAL SYSTEM-WIDE METRICS ---
+    def get_stats(tracking_dict):
+        if not tracking_dict: return 0.0, 0.0, 0
+        totals = [d['total'] for d in tracking_dict.values()]
+        return np.mean(totals), np.percentile(totals, 95), len(totals)
+
+    v_avg, v_95, v_count = get_stats(veh_tracking)
+    p_avg, p_95, p_count = get_stats(ped_tracking)
+    cross_modal_gap = abs(v_avg - p_avg)
+
+    lane_delays = list(lane_tracking.values())
+    if len(lane_delays) > 0 and sum(d**2 for d in lane_delays) > 0:
+        s_w = sum(lane_delays)
+        s_sq_w = sum(d**2 for d in lane_delays)
+        true_intra_lane_fairness = (s_w ** 2) / (len(lane_delays) * s_sq_w)
+    else:
+        true_intra_lane_fairness = 1.0
+
+    summary_file = args.out_csv.replace(".csv", "_FINAL_SUMMARY.txt")
+    with open(summary_file, "w") as f:
+        f.write(f"FIXED-TIMER Baseline Summary: {args.route_file}\n")
+        f.write("="*40 + "\n")
+        f.write(f"Total Vehicles Tracked:     {v_count}\n")
+        f.write(f"True Avg Veh Wait Time:     {v_avg:.2f}s\n")
+        f.write(f"True 95th Percentile Veh:   {v_95:.2f}s\n")
+        f.write("-" * 40 + "\n")
+        f.write(f"Total Pedestrians Tracked:  {p_count}\n")
+        f.write(f"True Avg Ped Wait Time:     {p_avg:.2f}s\n")
+        f.write(f"True 95th Percentile Ped:   {p_95:.2f}s\n")
+        f.write("-" * 40 + "\n")
+        f.write(f"FINAL CROSS-MODAL GAP:      {cross_modal_gap:.2f}s\n")
+        f.write(f"TRUE INTRA-LANE FAIRNESS:   {true_intra_lane_fairness:.4f}\n")
+
+    print(f"\nFinal True Metrics Summary saved to: {summary_file}")
+    print("="*50)
 
 if __name__ == "__main__":
     run_fixed_timer()
