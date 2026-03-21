@@ -16,41 +16,41 @@ class NemaStandardizedObservation(ObservationFunction):
         self.ts = traffic_signal
         self._setup_done = False
         
-        # This will hold lists of lane IDs mapped to our 8 standard indices
+        # Vehicles: Lanes mapped to our 8 standard indices
         # Indices: 0:NB_SR, 1:NB_L, 2:EB_SR, 3:EB_L, 4:SB_SR, 5:SB_L, 6:WB_SR, 7:WB_L
         self.movement_lanes = {i: [] for i in range(8)}
+        
+        # Pedestrians: Unique standard edges mapped to 4 approaches
+        # Indices: 0:North, 1:East, 2:South, 3:West
+        self.pedestrian_edges = {i: set() for i in range(4)}
 
     def _get_bearing(self, lane_id):
         """Calculates the compass bearing of an incoming edge pointing toward the junction."""
         shape = self.ts.sumo.lane.getShape(lane_id)
-        # Get the second to last and last point of the edge
         x1, y1 = shape[-2][:2]
         x2, y2 = shape[-1][:2]
         
-        # Calculate angle and convert to compass bearing (0 is North, 90 is East)
         angle_rad = math.atan2(x2 - x1, y2 - y1)
         bearing = (math.degrees(angle_rad) + 360) % 360
         return bearing
 
     def _determine_approach_direction(self, bearing):
         """Maps a compass bearing to an Approach Direction (N, E, S, W)."""
-        # Note: If an edge is pointing South (bearing ~180), the approach is FROM the North.
         if 135 <= bearing < 225:
-            return "N" # Northbound approach (traffic moving South)
+            return "N" 
         elif 225 <= bearing < 315:
-            return "E" # Eastbound approach (traffic moving West)
+            return "E" 
         elif 315 <= bearing <= 360 or 0 <= bearing < 45:
-            return "S" # Southbound approach (traffic moving North)
+            return "S" 
         elif 45 <= bearing < 135:
-            return "W" # Westbound approach (traffic moving East)
+            return "W" 
 
     def _setup(self):
-        """Maps arbitrary SUMO lanes to the 8 standard movements."""
+        """Maps arbitrary SUMO lanes and edges to the standard movements/approaches."""
         if self._setup_done:
             return
 
         incoming_lanes = self.ts.sumo.trafficlight.getControlledLanes(self.ts.id)
-        # Remove duplicates (SUMO sometimes lists lanes multiple times for different phases)
         incoming_lanes = list(dict.fromkeys(incoming_lanes))
 
         for lane in incoming_lanes:
@@ -58,79 +58,88 @@ class NemaStandardizedObservation(ObservationFunction):
             bearing = self._get_bearing(lane)
             approach_dir = self._determine_approach_direction(bearing)
 
-            # Look at where this lane goes to determine if it's a left turn or straight/right
             links = self.ts.sumo.lane.getLinks(lane)
             is_left_turn = False
             
             for link in links:
-                # link[2] contains the direction string ('s'=straight, 'l'=left, 'L'=partially left, 'r'=right)
                 if link[2] in ['l', 'L']:
                     is_left_turn = True
                     break
 
-            # Map to our 8 indices based on Direction and Turn type
             if approach_dir == "N":
                 idx = 1 if is_left_turn else 0
+                ped_idx = 0
             elif approach_dir == "E":
                 idx = 3 if is_left_turn else 2
+                ped_idx = 1
             elif approach_dir == "S":
                 idx = 5 if is_left_turn else 4
+                ped_idx = 2
             elif approach_dir == "W":
                 idx = 7 if is_left_turn else 6
+                ped_idx = 3
 
             self.movement_lanes[idx].append(lane)
+            
+            if not edge_id.startswith(':'):
+                self.pedestrian_edges[ped_idx].add(edge_id)
 
         self._setup_done = True
 
     def __call__(self):
-        """Fetches the standardized 8-movement observation state."""
+        """Fetches the standardized observation state, now including pedestrians."""
         self._setup()
 
-        # Initialize fixed-size arrays for our metrics
         standardized_density = np.zeros(8, dtype=np.float32)
         standardized_queue = np.zeros(8, dtype=np.float32)
+        standardized_peds = np.zeros(4, dtype=np.float32)
 
         for movement_idx in range(8):
             lanes = self.movement_lanes[movement_idx]
             
             if not lanes:
-                # Missing leg or missing turn lane; leave as 0.0
                 continue
             
             total_density = 0.0
             total_queue = 0.0
             
             for lane in lanes:
-                # Add domain randomization noise here if you want to bridge sim-to-real!
                 veh_count = self.ts.sumo.lane.getLastStepVehicleNumber(lane)
                 halting = self.ts.sumo.lane.getLastStepHaltingNumber(lane)
                 length = self.ts.sumo.lane.getLength(lane)
                 
-                # Normalize metrics
                 total_density += min(1.0, veh_count / (length / 7.5))
                 total_queue += min(1.0, halting / (length / 5.0))
             
-            # Average the metrics if multiple lanes exist for this single movement
             standardized_density[movement_idx] = total_density / len(lanes)
             standardized_queue[movement_idx] = total_queue / len(lanes)
 
-        # Force the phase array to always be length 8
+        for ped_idx in range(4):
+            edges = self.pedestrian_edges[ped_idx]
+            ped_count = 0
+            
+            for edge in edges:
+                try:
+                    ped_count += len(self.ts.sumo.edge.getLastStepPersonIDs(edge))
+                except Exception:
+                    pass
+            
+            standardized_peds[ped_idx] = min(1.0, ped_count / 10.0)
+
         MAX_PHASES = 8
         phase_id = [0] * MAX_PHASES
         
-        # Only set the current phase to 1 if it fits within our max bounds
-        # (This prevents index errors if SUMO throws a weird phase at us)
         if self.ts.green_phase < MAX_PHASES:
             phase_id[self.ts.green_phase] = 1
             
         min_green = [0 if self.ts.time_since_last_phase_change < self.ts.min_green + self.ts.yellow_time else 1]
 
-        # Combine into a flat, predictable, 1D array
         obs = np.concatenate([
             phase_id,
             min_green,
             standardized_density,
-            standardized_queue
+            standardized_queue,
+            standardized_peds
         ])
 
         return obs.astype(np.float32)
@@ -139,13 +148,11 @@ class NemaStandardizedObservation(ObservationFunction):
         """Returns a fixed-size Box space."""
         self._setup()
         
-        # 8 (fixed max phases) + 1 (min_green) + 8 (density) + 8 (queue)
         MAX_PHASES = 8
-        total_len = MAX_PHASES + 1 + 8 + 8
+        total_len = MAX_PHASES + 1 + 8 + 8 + 4
         
-        from gymnasium.spaces import Box
         return Box(low=0.0, high=1.0, shape=(total_len,), dtype=np.float32)
-    
+
 
 def jains_fairness_index(values):
     """

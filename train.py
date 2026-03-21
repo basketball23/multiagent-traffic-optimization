@@ -5,14 +5,6 @@ from stable_baselines3.common.vec_env import VecMonitor, VecNormalize
 
 from utils import NemaStandardizedObservation, SaveVecNormalizeCallback, fair_wait_time_reward
 
-save_dir = "./models17"
-custom_checkpoint_callback = SaveVecNormalizeCallback(
-    save_freq=50000, 
-    save_path=save_dir,
-    name_prefix="ppo_model",
-    verbose=1
-)
-
 def main():
     # creating multi-agent environment
     env = sumo_rl.parallel_env(
@@ -28,18 +20,28 @@ def main():
     env.unwrapped.render_mode = None    
     env = ss.pettingzoo_env_to_vec_env_v1(env)
 
-    env = ss.concat_vec_envs_v1(env, num_vec_envs=4, num_cpus=4, base_class='stable_baselines3')
+    env = ss.concat_vec_envs_v1(env, num_vec_envs=4, num_cpus=1, base_class='stable_baselines3')
 
     env = VecMonitor(env)
-
     env = VecNormalize(env, norm_obs=True, norm_reward=False)
+
+
+    save_dir = "./models19"
+    adjusted_save_freq = max(50000 // env.num_envs, 1)
+    
+    custom_checkpoint_callback = SaveVecNormalizeCallback(
+        save_freq=adjusted_save_freq, 
+        save_path=save_dir,
+        name_prefix="ppo_model",
+        verbose=1
+    )
 
     # initial proximal policy optimization (PPO) model
     alpha = 0.0003
     model = PPO(
         policy="MlpPolicy",
         env=env,
-        verbose=3,
+        verbose=1,
         learning_rate=alpha,
         gamma=0.95,
         tensorboard_log="./ppo_tensorboard/",
