@@ -235,12 +235,10 @@ def fair_wait_time_reward(traffic_signal):
     in_count = sum(traffic_signal.sumo.edge.getLastStepVehicleNumber(e) for e in traffic_signal.incoming_edges)
     out_count = sum(traffic_signal.sumo.edge.getLastStepVehicleNumber(e) for e in traffic_signal.outgoing_edges)
     
-    # CHANGED: Normalize pressure by the total number of edges (lanes)
     total_edges = len(traffic_signal.incoming_edges) + len(traffic_signal.outgoing_edges)
     current_pressure = abs(in_count - out_count) / max(1, total_edges)
 
     '''calculate and clip deltas'''
-    # CHANGED: Calculate deltas based on averages, clipped to realistic per-step changes
     v_delay_delta = np.clip(traffic_signal.prev_stats['avg_veh'] - avg_veh, -5.0, 5.0)
     p_delay_delta = np.clip(traffic_signal.prev_stats['avg_ped'] - avg_ped, -5.0, 5.0)
     
@@ -311,7 +309,7 @@ def vehicle_baseline_reward(traffic_signal):
         traffic_signal.outgoing_edges = list(out_edges)
 
         traffic_signal.prev_stats = {
-            'veh_delay': 0,
+            'avg_veh': 0.0,
             'max_lane_wait': 0,
             'phase': None,
             'pressure': 0.0
@@ -322,34 +320,39 @@ def vehicle_baseline_reward(traffic_signal):
     vehicle_delay = sum(lane_wait_times)
     max_lane_wait = max(lane_wait_times) if lane_wait_times else 0
 
+    vehicle_waiting_count = traffic_signal.get_total_queued()
+    avg_veh = vehicle_delay / vehicle_waiting_count if vehicle_waiting_count > 0 else 0.0
 
     in_count = sum(traffic_signal.sumo.edge.getLastStepVehicleNumber(e) for e in traffic_signal.incoming_edges)
     out_count = sum(traffic_signal.sumo.edge.getLastStepVehicleNumber(e) for e in traffic_signal.outgoing_edges)
-    current_pressure = abs(in_count - out_count)
+    
 
-    v_delay_delta = traffic_signal.prev_stats['veh_delay'] - vehicle_delay
-    max_lane_delta = traffic_signal.prev_stats['max_lane_wait'] - max_lane_wait
-    pressure_delta = np.clip(traffic_signal.prev_stats['pressure'] - current_pressure, -30, 30)
+    total_edges = len(traffic_signal.incoming_edges) + len(traffic_signal.outgoing_edges)
+    current_pressure = abs(in_count - out_count) / max(1, total_edges)
+
+    v_delay_delta = np.clip(traffic_signal.prev_stats['avg_veh'] - avg_veh, -5.0, 5.0)
+    max_lane_delta = np.clip(traffic_signal.prev_stats['max_lane_wait'] - max_lane_wait, -10.0, 10.0)
+    pressure_delta = np.clip(traffic_signal.prev_stats['pressure'] - current_pressure, -2.0, 2.0)
 
 
     current_phase = traffic_signal.green_phase
     switching_penalty = 1.0 if (traffic_signal.prev_stats['phase'] is not None and 
                                current_phase != traffic_signal.prev_stats['phase']) else 0.0
 
-    w_veh = 2.0
-    w_max_wait = 1.2
+    w_veh = 1.0
+    w_max_wait = 0.5
+    w_switch = 0.5
     w_pressure = 1.5
-    w_switch = 0.8
 
     reward = (
-        (w_veh * (v_delay_delta / 20.0)) + 
-        (w_max_wait * (max_lane_delta / 10.0)) + 
-        (w_pressure * (pressure_delta / 15.0)) -
+        (w_veh * v_delay_delta) + 
+        (w_max_wait * max_lane_delta) + 
+        (w_pressure * pressure_delta) -
         (w_switch * switching_penalty)
     )
 
     traffic_signal.prev_stats = {
-        'veh_delay': vehicle_delay,
+        'avg_veh': avg_veh,
         'max_lane_wait': max_lane_wait,
         'phase': current_phase,
         'pressure': current_pressure
