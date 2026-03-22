@@ -3,7 +3,7 @@ import supersuit as ss
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import VecMonitor, VecNormalize
 
-from utils import NemaStandardizedObservation, SaveVecNormalizeCallback, fair_wait_time_reward
+from utils import NemaPedestrianStandardizedObservation, NemaStandardizedObservation, SaveVecNormalizeCallback, fair_wait_time_reward, vehicle_baseline_reward
 
 def main():
     # creating multi-agent environment
@@ -12,7 +12,7 @@ def main():
         route_file='simulation/vehs.rou.xml,simulation/peds.rou.xml',
         use_gui=False,
         num_seconds=3600,
-        reward_fn=fair_wait_time_reward,
+        reward_fn=vehicle_baseline_reward,
         observation_class=NemaStandardizedObservation,
         sumo_seed='random',
     )
@@ -26,7 +26,7 @@ def main():
     env = VecNormalize(env, norm_obs=True, norm_reward=False)
 
 
-    save_dir = "./models19"
+    save_dir = "./models19_no_rew"
     adjusted_save_freq = max(50000 // env.num_envs, 1)
     
     custom_checkpoint_callback = SaveVecNormalizeCallback(

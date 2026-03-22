@@ -9,8 +9,11 @@ import traci
 import os
 from stable_baselines3.common.callbacks import BaseCallback
 
+'''
+OBSERVATION CLASSES
+'''
 
-class NemaStandardizedObservation(ObservationFunction):
+class NemaPedestrianStandardizedObservation(ObservationFunction):
     def __init__(self, traffic_signal):
         super().__init__(traffic_signal)
         self.ts = traffic_signal
@@ -153,6 +156,148 @@ class NemaStandardizedObservation(ObservationFunction):
         
         return Box(low=0.0, high=1.0, shape=(total_len,), dtype=np.float32)
 
+
+
+class NemaStandardizedObservation(ObservationFunction):
+    def __init__(self, traffic_signal):
+        super().__init__(traffic_signal)
+        self.ts = traffic_signal
+        self._setup_done = False
+        
+        # This will hold lists of lane IDs mapped to our 8 standard indices
+        # Indices: 0:NB_SR, 1:NB_L, 2:EB_SR, 3:EB_L, 4:SB_SR, 5:SB_L, 6:WB_SR, 7:WB_L
+        self.movement_lanes = {i: [] for i in range(8)}
+
+    def _get_bearing(self, lane_id):
+        """Calculates the compass bearing of an incoming edge pointing toward the junction."""
+        shape = self.ts.sumo.lane.getShape(lane_id)
+        # Get the second to last and last point of the edge
+        x1, y1 = shape[-2][:2]
+        x2, y2 = shape[-1][:2]
+        
+        # Calculate angle and convert to compass bearing (0 is North, 90 is East)
+        angle_rad = math.atan2(x2 - x1, y2 - y1)
+        bearing = (math.degrees(angle_rad) + 360) % 360
+        return bearing
+
+    def _determine_approach_direction(self, bearing):
+        """Maps a compass bearing to an Approach Direction (N, E, S, W)."""
+        # Note: If an edge is pointing South (bearing ~180), the approach is FROM the North.
+        if 135 <= bearing < 225:
+            return "N" # Northbound approach (traffic moving South)
+        elif 225 <= bearing < 315:
+            return "E" # Eastbound approach (traffic moving West)
+        elif 315 <= bearing <= 360 or 0 <= bearing < 45:
+            return "S" # Southbound approach (traffic moving North)
+        elif 45 <= bearing < 135:
+            return "W" # Westbound approach (traffic moving East)
+
+    def _setup(self):
+        """Maps arbitrary SUMO lanes to the 8 standard movements."""
+        if self._setup_done:
+            return
+
+        incoming_lanes = self.ts.sumo.trafficlight.getControlledLanes(self.ts.id)
+        # Remove duplicates (SUMO sometimes lists lanes multiple times for different phases)
+        incoming_lanes = list(dict.fromkeys(incoming_lanes))
+
+        for lane in incoming_lanes:
+            edge_id = self.ts.sumo.lane.getEdgeID(lane)
+            bearing = self._get_bearing(lane)
+            approach_dir = self._determine_approach_direction(bearing)
+
+            # Look at where this lane goes to determine if it's a left turn or straight/right
+            links = self.ts.sumo.lane.getLinks(lane)
+            is_left_turn = False
+            
+            for link in links:
+                # link[2] contains the direction string ('s'=straight, 'l'=left, 'L'=partially left, 'r'=right)
+                if link[2] in ['l', 'L']:
+                    is_left_turn = True
+                    break
+
+            # Map to our 8 indices based on Direction and Turn type
+            if approach_dir == "N":
+                idx = 1 if is_left_turn else 0
+            elif approach_dir == "E":
+                idx = 3 if is_left_turn else 2
+            elif approach_dir == "S":
+                idx = 5 if is_left_turn else 4
+            elif approach_dir == "W":
+                idx = 7 if is_left_turn else 6
+
+            self.movement_lanes[idx].append(lane)
+
+        self._setup_done = True
+
+    def __call__(self):
+        """Fetches the standardized 8-movement observation state."""
+        self._setup()
+
+        # Initialize fixed-size arrays for our metrics
+        standardized_density = np.zeros(8, dtype=np.float32)
+        standardized_queue = np.zeros(8, dtype=np.float32)
+
+        for movement_idx in range(8):
+            lanes = self.movement_lanes[movement_idx]
+            
+            if not lanes:
+                # Missing leg or missing turn lane; leave as 0.0
+                continue
+            
+            total_density = 0.0
+            total_queue = 0.0
+            
+            for lane in lanes:
+                # Add domain randomization noise here if you want to bridge sim-to-real!
+                veh_count = self.ts.sumo.lane.getLastStepVehicleNumber(lane)
+                halting = self.ts.sumo.lane.getLastStepHaltingNumber(lane)
+                length = self.ts.sumo.lane.getLength(lane)
+                
+                # Normalize metrics
+                total_density += min(1.0, veh_count / (length / 7.5))
+                total_queue += min(1.0, halting / (length / 5.0))
+            
+            # Average the metrics if multiple lanes exist for this single movement
+            standardized_density[movement_idx] = total_density / len(lanes)
+            standardized_queue[movement_idx] = total_queue / len(lanes)
+
+        # Force the phase array to always be length 8
+        MAX_PHASES = 8
+        phase_id = [0] * MAX_PHASES
+        
+        # Only set the current phase to 1 if it fits within our max bounds
+        # (This prevents index errors if SUMO throws a weird phase at us)
+        if self.ts.green_phase < MAX_PHASES:
+            phase_id[self.ts.green_phase] = 1
+            
+        min_green = [0 if self.ts.time_since_last_phase_change < self.ts.min_green + self.ts.yellow_time else 1]
+
+        # Combine into a flat, predictable, 1D array
+        obs = np.concatenate([
+            phase_id,
+            min_green,
+            standardized_density,
+            standardized_queue
+        ])
+
+        return obs.astype(np.float32)
+
+    def observation_space(self):
+        """Returns a fixed-size Box space."""
+        self._setup()
+        
+        # 8 (fixed max phases) + 1 (min_green) + 8 (density) + 8 (queue)
+        MAX_PHASES = 8
+        total_len = MAX_PHASES + 1 + 8 + 8
+        
+        from gymnasium.spaces import Box
+        return Box(low=0.0, high=1.0, shape=(total_len,), dtype=np.float32)
+    
+
+'''
+REWARD FUNCTIONS
+'''
 
 def jains_fairness_index(values):
     """
@@ -360,6 +505,10 @@ def vehicle_baseline_reward(traffic_signal):
 
     return reward
 
+
+'''
+MISCELLANEOUS
+'''
 
 def get_intersection_metrics(tl_id):
     '''
