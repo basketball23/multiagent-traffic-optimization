@@ -4,9 +4,9 @@ Completed Vehicle Trips:    887
 True Avg Veh Wait Time:     25.48s
 True 95th Percentile Veh:   70.00s
 ----------------------------------------
-Pedestrians Tracked:        240
-True Avg Ped Wait Time:     15.95s
-True 95th Percentile Ped:   50.00s
+Pedestrians Tracked:        230
+True Avg Ped Wait Time:     30.94s
+True 95th Percentile Ped:   69.14s
 ----------------------------------------
-FINAL CROSS-MODAL GAP:      9.53s
+FINAL CROSS-MODAL GAP:      5.46s
 TRUE INTRA-LANE FAIRNESS:   0.1697

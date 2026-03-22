@@ -4,8 +4,46 @@ import traci
 import csv
 import argparse
 import numpy as np
+import xml.etree.ElementTree as ET
 
 from utils import get_intersection_metrics
+
+def parse_true_metrics(tripinfo_path):
+    """Parses SUMO's native tripinfo.xml for 100% accurate wait times."""
+    try:
+        tree = ET.parse(tripinfo_path)
+        root = tree.getroot()
+    except FileNotFoundError:
+        print(f"Warning: {tripinfo_path} not found. Returning zeros.")
+        return {'veh_count': 0, 'veh_avg': 0.0, 'veh_p95': 0.0,
+                'ped_count': 0, 'ped_avg': 0.0, 'ped_p95': 0.0, 'cross_modal_gap': 0.0}
+
+    veh_waits = []
+    ped_waits = []
+
+    for trip in root.findall('tripinfo'):
+        wait = float(trip.get('waitingTime', 0))
+        veh_waits.append(wait)
+
+    for person in root.findall('personinfo'):
+        p_wait = 0.0
+        for walk in person.findall('walk'):
+            p_wait += float(walk.get('timeLoss', 0))
+        ped_waits.append(p_wait)
+
+    v_95 = np.percentile(veh_waits, 95) if veh_waits else 0.0
+    v_avg = np.mean(veh_waits) if veh_waits else 0.0
+    v_count = len(veh_waits)
+
+    p_95 = np.percentile(ped_waits, 95) if ped_waits else 0.0
+    p_avg = np.mean(ped_waits) if ped_waits else 0.0
+    p_count = len(ped_waits)
+
+    return {
+        'veh_count': v_count, 'veh_avg': v_avg, 'veh_p95': v_95,
+        'ped_count': p_count, 'ped_avg': p_avg, 'ped_p95': p_95,
+        'cross_modal_gap': abs(v_avg - p_avg)
+    }
 
 def run_fixed_timer():
     parser = argparse.ArgumentParser(description="Run Fixed-Timer Baseline Evaluation")
@@ -14,11 +52,14 @@ def run_fixed_timer():
     parser.add_argument("--out-csv", type=str, required=True)
     args = parser.parse_args()
 
+    tripinfo_file = args.out_csv.replace(".csv", "_tripinfo.xml")
+
     sumoCmd = [
         "sumo", 
         "-n", args.net_file, 
         "-r", args.route_file,
         "--waiting-time-memory", "10000",
+        "--tripinfo-output", tripinfo_file,
         "--no-warnings", "true"
     ]
     traci.start(sumoCmd)
@@ -126,20 +167,7 @@ def run_fixed_timer():
     traci.close()
     print(f"Fixed-Timer Baseline Simulation Complete.")
 
-    def get_stats(tracking_dict, arrived_set=None):
-        if not tracking_dict: return 0.0, 0.0, 0
-        
-        if arrived_set is not None:
-            totals = [d['total'] for v_id, d in tracking_dict.items() if v_id in arrived_set]
-        else:
-            totals = [d['total'] for d in tracking_dict.values()]
-            
-        if not totals: return 0.0, 0.0, 0
-        return np.mean(totals), np.percentile(totals, 95), len(totals)
-
-    v_avg, v_95, v_count = get_stats(veh_tracking, arrived_vehicles)
-    p_avg, p_95, p_count = get_stats(ped_tracking)
-    cross_modal_gap = abs(v_avg - p_avg)
+    true_stats = parse_true_metrics(tripinfo_file)
 
     lane_delays = list(lane_tracking.values())
     if len(lane_delays) > 0 and sum(d**2 for d in lane_delays) > 0:
@@ -153,15 +181,15 @@ def run_fixed_timer():
     with open(summary_file, "w") as f:
         f.write(f"FIXED-TIMER Baseline Summary: {args.route_file}\n")
         f.write("="*40 + "\n")
-        f.write(f"Completed Vehicle Trips:    {v_count}\n")
-        f.write(f"True Avg Veh Wait Time:     {v_avg:.2f}s\n")
-        f.write(f"True 95th Percentile Veh:   {v_95:.2f}s\n")
+        f.write(f"Completed Vehicle Trips:    {true_stats['veh_count']}\n")
+        f.write(f"True Avg Veh Wait Time:     {true_stats['veh_avg']:.2f}s\n")
+        f.write(f"True 95th Percentile Veh:   {true_stats['veh_p95']:.2f}s\n")
         f.write("-" * 40 + "\n")
-        f.write(f"Pedestrians Tracked:        {p_count}\n")
-        f.write(f"True Avg Ped Wait Time:     {p_avg:.2f}s\n")
-        f.write(f"True 95th Percentile Ped:   {p_95:.2f}s\n")
+        f.write(f"Pedestrians Tracked:        {true_stats['ped_count']}\n")
+        f.write(f"True Avg Ped Wait Time:     {true_stats['ped_avg']:.2f}s\n")
+        f.write(f"True 95th Percentile Ped:   {true_stats['ped_p95']:.2f}s\n")
         f.write("-" * 40 + "\n")
-        f.write(f"FINAL CROSS-MODAL GAP:      {cross_modal_gap:.2f}s\n")
+        f.write(f"FINAL CROSS-MODAL GAP:      {true_stats['cross_modal_gap']:.2f}s\n")
         f.write(f"TRUE INTRA-LANE FAIRNESS:   {true_intra_lane_fairness:.4f}\n")
 
     print(f"\nFinal True Metrics Summary saved to: {summary_file}")
