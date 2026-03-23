@@ -21,7 +21,7 @@ class NemaPedestrianStandardizedObservation(ObservationFunction):
         self.ts = traffic_signal
         self._setup_done = False
         
-        # Vehicles: Lanes mapped to our 8 standard indices
+        # Vehicles: Lanes mapped to 8 standard indices
         # Indices: 0:NB_SR, 1:NB_L, 2:EB_SR, 3:EB_L, 4:SB_SR, 5:SB_L, 6:WB_SR, 7:WB_L
         self.movement_lanes = {i: [] for i in range(8)}
         
