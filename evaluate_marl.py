@@ -5,50 +5,11 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import VecNormalize
 
 from utils import NemaPedestrianStandardizedObservation, NemaStandardizedObservation
-from utils import fair_wait_time_reward, vehicle_baseline_reward, get_intersection_metrics
+from utils import fair_wait_time_reward, vehicle_baseline_reward, parse_true_metrics, get_intersection_metrics
 
 import traci
 import csv
 import numpy as np
-
-import xml.etree.ElementTree as ET
-
-def parse_true_metrics(tripinfo_path):
-    """Parses SUMO's native tripinfo.xml for 100% accurate wait times."""
-    try:
-        tree = ET.parse(tripinfo_path)
-        root = tree.getroot()
-    except FileNotFoundError:
-        print(f"Warning: {tripinfo_path} not found. Returning zeros.")
-        return {'veh_count': 0, 'veh_avg': 0.0, 'veh_p95': 0.0,
-                'ped_count': 0, 'ped_avg': 0.0, 'ped_p95': 0.0, 'cross_modal_gap': 0.0}
-
-    veh_waits = []
-    ped_waits = []
-
-    for trip in root.findall('tripinfo'):
-        wait = float(trip.get('waitingTime', 0))
-        veh_waits.append(wait)
-
-    for person in root.findall('personinfo'):
-        p_wait = 0.0
-        for walk in person.findall('walk'):
-            p_wait += float(walk.get('timeLoss', 0))
-        ped_waits.append(p_wait)
-
-    v_95 = np.percentile(veh_waits, 95) if veh_waits else 0.0
-    v_avg = np.mean(veh_waits) if veh_waits else 0.0
-    v_count = len(veh_waits)
-
-    p_95 = np.percentile(ped_waits, 95) if ped_waits else 0.0
-    p_avg = np.mean(ped_waits) if ped_waits else 0.0
-    p_count = len(ped_waits)
-
-    return {
-        'veh_count': v_count, 'veh_avg': v_avg, 'veh_p95': v_95,
-        'ped_count': p_count, 'ped_avg': p_avg, 'ped_p95': p_95,
-        'cross_modal_gap': abs(v_avg - p_avg)
-    }
 
 def main():
     parser = argparse.ArgumentParser(description="Run MARL evaluation")
