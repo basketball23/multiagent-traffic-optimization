@@ -13,7 +13,7 @@ import numpy as np
 
 def main():
     parser = argparse.ArgumentParser(description="Run MARL evaluation")
-    parser.add_argument("--net-file", type=str, default='simulation/grid-network.net.xml')
+    parser.add_argument("--net-file", type=str, default='simulation/grid-network-nema.net.xml')
     parser.add_argument("--route-file", type=str, required=True, help="Comma-separated route files")
     parser.add_argument("--out-csv", type=str, required=True, help="Path to save the custom CSV")
     parser.add_argument("--sumo-rl-out", type=str, required=True, help="Prefix for sumo-rl outputs")
@@ -37,12 +37,12 @@ def main():
     env = ss.pettingzoo_env_to_vec_env_v1(env)
     env = ss.concat_vec_envs_v1(env, num_vec_envs=1, num_cpus=1, base_class='stable_baselines3')
 
-    stats_path = "models19/vec_normalize_330000_steps.pkl" 
+    stats_path = "models20/vec_normalize_9450000_steps.pkl" 
     env = VecNormalize.load(stats_path, env)
     env.training = False
     env.norm_reward = False
 
-    model = PPO.load("models19/ppo_model_3300000_steps.zip")
+    model = PPO.load("models20/ppo_model_9450000_steps.zip")
 
     veh_tracking = {}
     ped_tracking = {}
@@ -103,7 +103,6 @@ def main():
                 
                 lanes = list(set(traci.trafficlight.getControlledLanes(tl_id)))
                 
-                # --- NEW: Ensure all controlled lanes exist in our tracker even if 0 delay ---
                 for lane in lanes:
                     if lane not in lane_tracking:
                         lane_tracking[lane] = 0.0

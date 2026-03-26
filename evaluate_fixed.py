@@ -2,9 +2,10 @@ import traci
 import csv
 import argparse
 import numpy as np
-import xml.etree.ElementTree as ET
 
 from utils import parse_true_metrics, get_intersection_metrics
+
+PROGRAM_ID = 1
 
 def run_fixed_timer():
     parser = argparse.ArgumentParser(description="Run Fixed-Timer Baseline Evaluation")
@@ -26,6 +27,9 @@ def run_fixed_timer():
     traci.start(sumoCmd)
 
     print(f"Running Fixed-Timer Control for {args.route_file}...")
+
+    for tl_id in traci.trafficlight.getIDList():
+        traci.trafficlight.setProgram(tl_id, str(PROGRAM_ID))
 
     step = 0
 

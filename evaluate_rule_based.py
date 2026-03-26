@@ -10,6 +10,7 @@ MAX_GREEN_TIME = 35
 QUEUE_THRESHOLD = 3
 PEDESTRIAN_WEIGHT = 10   
 MAX_PED_WAIT_ALLOWANCE = 45
+PROGRAM_ID = 1
 
 
 def run_multi_rule_based():
@@ -37,11 +38,13 @@ def run_multi_rule_based():
     traci.start(sumoCmd)
     
     print(f"Running Dynamic Rule-Based Control for {args.route_file}...")
+
+    for tl_id in traci.trafficlight.getIDList():
+        traci.trafficlight.setProgram(tl_id, str(PROGRAM_ID))
     
     step = 0
     phase_timers = {} 
     
-    # Keeping the manual trackers since lane_tracking is still needed for intra_lane_fairness
     veh_tracking = {}
     ped_tracking = {}
     lane_tracking = {}
@@ -98,18 +101,21 @@ def run_multi_rule_based():
                 
                 logic = traci.trafficlight.getCompleteRedYellowGreenDefinition(target_light)[0]
                 num_phases = len(logic.phases)
-                
-                if current_phase % 2 == 0:
+
+                state_string = traci.trafficlight.getRedYellowGreenState(target_light)
+
+                is_green_phase = ('g' in state_string.lower())
+
+                if is_green_phase:
                     if phase_timers[target_light] >= MIN_GREEN_TIME:
                         waiting_entities_on_red = 0
                         active_entities_on_green = 0
                         
-                        state_string = traci.trafficlight.getRedYellowGreenState(target_light)
                         lanes = traci.trafficlight.getControlledLanes(target_light)
                         
                         unique_red_lanes = set()
                         unique_green_lanes = set()
-                        
+
                         for i, lane in enumerate(lanes):
                             if state_string[i].lower() in ('r', 'y'):
                                 if lane not in unique_red_lanes:
@@ -134,28 +140,29 @@ def run_multi_rule_based():
                         demand_on_red = waiting_entities_on_red > 0
                         queue_threshold_met = waiting_entities_on_red >= QUEUE_THRESHOLD
                         max_green_hit = phase_timers[target_light] >= MAX_GREEN_TIME
-                        
+
                         green_flow_dying = active_entities_on_green <= 1
-                        
+
                         force_switch = max_green_hit and demand_on_red
                         gap_out_switch = queue_threshold_met and green_flow_dying
                         low_demand_switch = demand_on_red and green_flow_dying
-                        
                         pedestrian_override = max_ped_wait_time >= MAX_PED_WAIT_ALLOWANCE
                         
                         if force_switch or gap_out_switch or low_demand_switch or pedestrian_override:
                             next_phase = (current_phase + 1) % num_phases
                             traci.trafficlight.setPhase(target_light, next_phase)
+                            traci.trafficlight.setPhaseDuration(target_light, 1000)
                             phase_timers[target_light] = 0 
                 
                 else:
-                    if phase_timers[target_light] >= 4:
+                    target_duration = logic.phases[current_phase].duration
+                    
+                    if phase_timers[target_light] >= target_duration:
                         next_phase = (current_phase + 1) % num_phases
                         traci.trafficlight.setPhase(target_light, next_phase)
                         traci.trafficlight.setPhaseDuration(target_light, 1000)
                         phase_timers[target_light] = 0
 
-            # Snapshot tracking every 5 seconds
             if step % 5 == 0:
                 net_veh_count = 0
                 net_veh_time = 0
