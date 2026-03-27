@@ -16,19 +16,21 @@ OBSERVATION CLASSES
 '''
 
 class NemaPedestrianStandardizedObservation(ObservationFunction):
+    '''
+    nema-standardized observation state
+    generalizable to any intersection, including t-junctions, etc.
+    '''
     def __init__(self, traffic_signal):
         super().__init__(traffic_signal)
         self.ts = traffic_signal
         self._setup_done = False
         
-        # Indices: 0:NB_SR, 1:NB_L, 2:EB_SR, 3:EB_L, 4:SB_SR, 5:SB_L, 6:WB_SR, 7:WB_L
         self.movement_lanes = {i: [] for i in range(8)}
         
-        # Indices: 0:North, 1:East, 2:South, 3:West
         self.pedestrian_edges = {i: set() for i in range(4)}
 
     def _get_bearing(self, lane_id):
-        """Calculates the compass bearing of an incoming edge pointing toward the junction."""
+        """calculates the compass bearing of an incoming edge pointing toward the junction"""
         shape = self.ts.sumo.lane.getShape(lane_id)
         x1, y1 = shape[-2][:2]
         x2, y2 = shape[-1][:2]
@@ -38,7 +40,7 @@ class NemaPedestrianStandardizedObservation(ObservationFunction):
         return bearing
 
     def _determine_approach_direction(self, bearing):
-        """Maps a compass bearing to an Approach Direction (N, E, S, W)."""
+        """maps a cardinal direction to an approach direction"""
         if 135 <= bearing < 225:
             return "N" 
         elif 225 <= bearing < 315:
@@ -49,7 +51,7 @@ class NemaPedestrianStandardizedObservation(ObservationFunction):
             return "W" 
 
     def _setup(self):
-        """Maps arbitrary SUMO lanes and edges to the standard movements/approaches."""
+        """maps arbitrary SUMO lanes and edges to the standard nema approaches"""
         if self._setup_done:
             return
 
@@ -90,7 +92,7 @@ class NemaPedestrianStandardizedObservation(ObservationFunction):
         self._setup_done = True
 
     def __call__(self):
-        """Fetches the standardized observation state, now including pedestrians."""
+        """fetches the standardized observation state"""
         self._setup()
 
         standardized_density = np.zeros(8, dtype=np.float32)
@@ -148,7 +150,7 @@ class NemaPedestrianStandardizedObservation(ObservationFunction):
         return obs.astype(np.float32)
 
     def observation_space(self):
-        """Returns a fixed-size Box space."""
+        """returns a fixed-size Box space"""
         self._setup()
         
         MAX_PHASES = 8
@@ -164,11 +166,10 @@ class NemaStandardizedObservation(ObservationFunction):
         self.ts = traffic_signal
         self._setup_done = False
         
-        # Indices: 0:NB_SR, 1:NB_L, 2:EB_SR, 3:EB_L, 4:SB_SR, 5:SB_L, 6:WB_SR, 7:WB_L
         self.movement_lanes = {i: [] for i in range(8)}
 
     def _get_bearing(self, lane_id):
-        """Calculates the compass bearing of an incoming edge pointing toward the junction."""
+        """calculates the compass bearing of an incoming edge pointing toward the junction"""
         shape = self.ts.sumo.lane.getShape(lane_id)
         x1, y1 = shape[-2][:2]
         x2, y2 = shape[-1][:2]
@@ -178,7 +179,7 @@ class NemaStandardizedObservation(ObservationFunction):
         return bearing
 
     def _determine_approach_direction(self, bearing):  
-        """Maps a compass bearing to an Approach Direction (N, E, S, W)."""
+        """maps a cardinal direction to an approach direction"""
         if 135 <= bearing < 225:
             return "N"
         elif 225 <= bearing < 315:
@@ -189,7 +190,7 @@ class NemaStandardizedObservation(ObservationFunction):
             return "W"
         
     def _setup(self):
-        """Maps arbitrary SUMO lanes to the 8 standard movements."""
+        """maps arbitrary SUMO lanes and edges to the standard nema approaches"""
         if self._setup_done:
             return
 
@@ -223,7 +224,7 @@ class NemaStandardizedObservation(ObservationFunction):
         self._setup_done = True
 
     def __call__(self):
-        """Fetches the standardized 8-movement observation state."""
+        """fetches the standardized observation state"""
         self._setup()
 
         standardized_density = np.zeros(8, dtype=np.float32)
@@ -267,10 +268,9 @@ class NemaStandardizedObservation(ObservationFunction):
         return obs.astype(np.float32)
 
     def observation_space(self):
-        """Returns a fixed-size Box space."""
+        """returns a fixed-size Box space"""
         self._setup()
         
-        # 8 (fixed max phases) + 1 (min_green) + 8 (density) + 8 (queue)
         MAX_PHASES = 8
         total_len = MAX_PHASES + 1 + 8 + 8
         
@@ -346,20 +346,17 @@ def fair_wait_time_reward(traffic_signal):
     avg_veh = vehicle_delay / vehicle_waiting_count if vehicle_waiting_count > 0 else 0.0
     avg_ped = pedestrian_delay / len(ped_wait_times) if ped_wait_times else 0.0
 
-    # smooth the averages so a sudden burst doesn't explode the gradients
     alpha = 0.2
     ema_veh = (1 - alpha) * traffic_signal.prev_stats['ema_veh'] + (alpha * avg_veh)
     ema_ped = (1 - alpha) * traffic_signal.prev_stats['ema_ped'] + (alpha * avg_ped)
 
     '''fairness/equity metrics'''
-    # if a group is empty don't penalize
     if vehicle_waiting_count == 0 or len(ped_wait_times) == 0:
         current_equity_idx = traffic_signal.prev_stats['equity_idx']
     else:
         current_equity_idx = jains_fairness_index([ema_veh, ema_ped])
 
     '''pressure calculation'''
-    # total vehicles approaching vs total vehicles departing
     in_count = sum(traffic_signal.sumo.edge.getLastStepVehicleNumber(e) for e in traffic_signal.incoming_edges)
     out_count = sum(traffic_signal.sumo.edge.getLastStepVehicleNumber(e) for e in traffic_signal.outgoing_edges)
     
@@ -381,22 +378,22 @@ def fair_wait_time_reward(traffic_signal):
     switching_penalty = 1.0 if (traffic_signal.prev_stats['phase'] is not None and 
                                current_phase != traffic_signal.prev_stats['phase']) else 0.0
 
-    '''Reward Calculation'''
-    w_veh = 1.0
-    w_ped = 1.0
-    w_fair = 0.5
-    w_equity = 3.0
-    w_switch = 0.5
-    w_pressure = 1.5
+    '''reward calculation'''
+    w_v = 1.0
+    w_p = 1.0
+    w_f = 0.5
+    w_eq = 3.0
+    w_pr = 1.5
+    w_s = 0.5
 
     reward = (
-        (w_veh * v_delay_delta) + 
-        (w_ped * p_delay_delta) + 
-        (w_fair * max_lane_delta) + 
-        (w_fair * p95_delta) +
-        (w_equity * equity_delta) +
-        (w_pressure * pressure_delta) -
-        (w_switch * switching_penalty)
+        (w_v * v_delay_delta) + 
+        (w_p * p_delay_delta) + 
+        (w_f * max_lane_delta) + 
+        (w_f * p95_delta) +
+        (w_eq * equity_delta) +
+        (w_pr * pressure_delta) -
+        (w_s * switching_penalty)
     )
 
     reward = np.clip(reward, -10.0, 10.0)
@@ -494,7 +491,7 @@ MISCELLANEOUS
 '''
 
 def parse_true_metrics(tripinfo_path):
-    """Parses SUMO's native tripinfo.xml for 100% accurate wait times."""
+    """parses SUMO's tripinfo.xml"""
     try:
         tree = ET.parse(tripinfo_path)
         root = tree.getroot()
@@ -532,7 +529,7 @@ def parse_true_metrics(tripinfo_path):
 
 def get_intersection_metrics(tl_id):
     '''
-    Helper function to extract wait times and counts for an intersection.
+    Helper function to extract wait times and counts for an intersection
     '''
     veh_wait_count = 0
     veh_wait_time = 0
@@ -558,7 +555,7 @@ def get_intersection_metrics(tl_id):
 
 class SaveVecNormalizeCallback(BaseCallback):
     '''
-    Custom callback for saving a model and its VecNormalize statistics at the same time.
+    custom callback for saving a model and its VecNormalize statistics at the same time
     '''
     def __init__(self, save_freq: int, save_path: str, name_prefix: str = "ppo_model", verbose: int = 0):
         super().__init__(verbose)
@@ -567,13 +564,11 @@ class SaveVecNormalizeCallback(BaseCallback):
         self.name_prefix = name_prefix
 
     def _init_callback(self) -> None:
-        # Create folder if it doesn't exist
         if self.save_path is not None:
             os.makedirs(self.save_path, exist_ok=True)
 
     def _on_step(self) -> bool:
         if self.n_calls % self.save_freq == 0:
-            # Construct file paths
             model_path = os.path.join(self.save_path, f"{self.name_prefix}_{self.num_timesteps}_steps")
             stats_path = os.path.join(self.save_path, f"vec_normalize_{self.num_timesteps}_steps.pkl")
             
