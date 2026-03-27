@@ -8,15 +8,16 @@ from utils import NemaPedestrianStandardizedObservation, NemaStandardizedObserva
 def main():
     # creating multi-agent environment
     env = sumo_rl.parallel_env(
-        net_file='simulation/grid-network.net.xml',
-        route_file='simulation/vehs.rou.xml,simulation/peds.rou.xml',
+        net_file='simulation/grid-network-nema.net.xml',
+        route_file='simulation/vehs-nema.rou.xml,simulation/peds-nema.rou.xml',
         use_gui=False,
         num_seconds=3600,
-        reward_fn=vehicle_baseline_reward,
-        observation_class=NemaStandardizedObservation,
+        reward_fn=fair_wait_time_reward,
+        observation_class=NemaPedestrianStandardizedObservation,
         sumo_seed='random',
     )
 
+    # env processing
     env.unwrapped.render_mode = None    
     env = ss.pettingzoo_env_to_vec_env_v1(env)
 
@@ -25,8 +26,8 @@ def main():
     env = VecMonitor(env)
     env = VecNormalize(env, norm_obs=True, norm_reward=False)
 
-
-    save_dir = "./models19_no_rew"
+    # saving
+    save_dir = "./models20"
     adjusted_save_freq = max(50000 // env.num_envs, 1)
     
     custom_checkpoint_callback = SaveVecNormalizeCallback(
@@ -36,7 +37,7 @@ def main():
         verbose=1
     )
 
-    # initial proximal policy optimization (PPO) model
+    # initialize ppo model
     alpha = 0.0003
     model = PPO(
         policy="MlpPolicy",
@@ -49,9 +50,10 @@ def main():
         batch_size=256 
     )
 
+    # run training
     model.learn(total_timesteps=10000000, callback=custom_checkpoint_callback)
 
-    model.save("traffic_model_generalized")
+    model.save("traffic_model")
     env.save("vec_normalize.pkl")
 
     env.close()
