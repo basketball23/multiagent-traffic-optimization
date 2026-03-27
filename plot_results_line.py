@@ -3,7 +3,7 @@ import glob
 import pandas as pd
 import matplotlib.pyplot as plt
 
-base_dir = "evaluation-results/extreme-demand"
+base_dir = "evaluation-results/high-demand"
 folders = {
     "Fixed-Time": os.path.join(base_dir, "baseline-fixed"),
     "Rule-Based": os.path.join(base_dir, "baseline-rule-based"),
@@ -42,11 +42,9 @@ for name, folder in folders.items():
 plt.style.use('bmh') 
 colors = {'Fixed-Time': '#2a9d8f', 'Rule-Based': '#457b9d', 'Pedestrian-Aware MARL': '#e63946'}
 
-# Increased figsize and changed to a 3x2 grid
 fig, axs = plt.subplots(3, 2, figsize=(16, 18))
 fig.suptitle('Traffic Control Model Performance (1-Hour Simulation Averaged Across 10 Seeds)', fontsize=18, fontweight='bold')
 
-# --- Graph 1: Vehicle Average Wait Time ---
 ax = axs[0, 0]
 for name, df in data.items():
     ax.plot(df['step'], df['vehicle_average_waiting_time_mean'], label=name, color=colors[name], linewidth=2)
@@ -56,7 +54,6 @@ ax.set_xlabel('Simulation Step (Seconds)')
 ax.set_ylabel('Wait Time (Seconds)')
 ax.legend()
 
-# --- Graph 2: Pedestrian Average Wait Time ---
 ax = axs[0, 1]
 for name, df in data.items():
     ax.plot(df['step'], df['pedestrian_average_waiting_time_mean'], label=name, color=colors[name], linewidth=2)
@@ -66,7 +63,6 @@ ax.set_xlabel('Simulation Step (Seconds)')
 ax.set_ylabel('Wait Time (Seconds)')
 ax.legend()
 
-# --- Graph 3: Cross-Modal Fairness ---
 ax = axs[1, 0]
 for name, df in data.items():
     ax.plot(df['step'], df['cross_modal_fairness_mean'], label=name, color=colors[name], linewidth=2)
@@ -80,7 +76,6 @@ ax.set_xlabel('Simulation Step (Seconds)')
 ax.set_ylabel('Absolute Difference in Wait Times (s)')
 ax.legend()
 
-# --- Graph 4: Intra-Lane Fairness (Jain's Index) ---
 ax = axs[1, 1]
 for name, df in data.items():
     ax.plot(df['step'], df['intra_lane_fairness_mean'], label=name, color=colors[name], linewidth=2)
@@ -91,7 +86,6 @@ ax.set_ylabel('Fairness Index (0.0 to 1.0)')
 ax.set_ylim(0, 1.1)
 ax.legend()
 
-# --- Graph 5: P95 Pedestrian Wait Time (Bar Chart Summary) ---
 ax = axs[2, 0]
 names = list(data.keys())
 p95_means = [data[name]['p95_ped_wait_time_mean'].mean() for name in names]
@@ -107,7 +101,6 @@ for bar in bars:
     yval = bar.get_height()
     ax.text(bar.get_x() + bar.get_width()/2.0, yval + 2, f"{round(yval, 1)}s", ha='center', va='bottom', fontweight='bold')
 
-# --- Hide the empty 6th subplot ---
 fig.delaxes(axs[2, 1])
 
 plt.tight_layout(rect=[0, 0.03, 1, 0.96])

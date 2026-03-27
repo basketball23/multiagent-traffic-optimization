@@ -5,23 +5,22 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-base_dir = "evaluation-results"
+base_dir = "evaluation-results-nema"
 demands = ["low-demand", "regular-demand", "high-demand"]
 
 models = {
     "Fixed-Time": "baseline-fixed",
-    "Actuated": "baseline-rule-based",
     "Ablation": "marl-no-rew",
     "Proposed PPO": "marl"
 }
 
 colors = {
     'Fixed-Time': '#9ca3af',
-    'Actuated': '#60a5fa',
     'Ablation': '#f87171',
     'Proposed PPO': '#10b981'
 }
 
+# --- 2. Parsing Functions ---
 def parse_summary_file(filepath):
     with open(filepath, 'r', encoding='utf-8') as f:
         content = f.read()
@@ -72,13 +71,13 @@ fig = plt.figure(figsize=(22, 7))
 
 ax1 = plt.subplot(1, 3, 1)
 x = np.arange(len(demands))
-width = 0.2
+width = 0.25 
 
 for i, model_name in enumerate(models.keys()):
     means = [data[d].get(model_name, {}).get('veh_avg_mean', 0) for d in demands]
     stds = [data[d].get(model_name, {}).get('veh_avg_std', 0) for d in demands]
     
-    positions = x - (1.5 * width) + (i * width)
+    positions = x - width + (i * width)
     ax1.bar(positions, means, width, yerr=stds, capsize=5, label=model_name, 
             color=colors[model_name], edgecolor='black', alpha=0.9)
 
@@ -90,12 +89,13 @@ ax1.legend()
 
 if "high-demand" in data and data["high-demand"]:
     model_names = list(models.keys())
-
+    x_pos = np.arange(len(model_names))
+    
     ax2 = plt.subplot(1, 3, 2)
     p95_means = [data["high-demand"][m]['p95_ped_mean'] for m in model_names]
     p95_stds = [data["high-demand"][m]['p95_ped_std'] for m in model_names]
     
-    bars2 = ax2.bar(model_names, p95_means, yerr=p95_stds, capsize=5, 
+    bars2 = ax2.bar(x_pos, p95_means, yerr=p95_stds, capsize=5, 
                     color=[colors[m] for m in model_names], edgecolor='black', alpha=0.8)
     
     max_y2 = max(p95_means) + max(p95_stds)
@@ -103,6 +103,7 @@ if "high-demand" in data and data["high-demand"]:
     
     ax2.set_ylabel('P95 Ped Wait Time (s)', fontweight='bold')
     ax2.set_title('High Demand: Extreme Pedestrian Wait', fontsize=14, fontweight='bold', pad=15)
+    ax2.set_xticks(x_pos)
     ax2.set_xticklabels(model_names, fontweight='bold')
     
     for i, bar in enumerate(bars2):
@@ -111,15 +112,15 @@ if "high-demand" in data and data["high-demand"]:
         ax2.text(bar.get_x() + bar.get_width() / 2, height + error_offset + 1,
                  f'{height:.1f}s', ha='center', va='bottom', fontweight='bold', color='#374151')
 
-
     ax3 = plt.subplot(1, 3, 3)
     jain_means = [data["high-demand"][m]['intra_lane_mean'] for m in model_names]
     
-    bars3 = ax3.bar(model_names, jain_means, 
+    bars3 = ax3.bar(x_pos, jain_means, 
                     color=[colors[m] for m in model_names], edgecolor='black', alpha=0.8)
     
     ax3.set_ylabel("Jain's Fairness Index", fontweight='bold')
     ax3.set_title('High Demand: Intra-Lane Fairness', fontsize=14, fontweight='bold', pad=15)
+    ax3.set_xticks(x_pos)
     ax3.set_xticklabels(model_names, fontweight='bold')
     ax3.set_ylim(0, 1.15)
     
