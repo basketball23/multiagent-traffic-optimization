@@ -25,8 +25,8 @@ def main():
         out_csv_name=args.sumo_rl_out, 
         use_gui=False, 
         num_seconds=3600,
-        reward_fn=fair_wait_time_reward,
-        observation_class=NemaPedestrianStandardizedObservation,
+        reward_fn=vehicle_baseline_reward,
+        observation_class=NemaStandardizedObservation,
         waiting_time_memory=10000,
         sumo_seed=1,
         additional_sumo_cmd=f"--tripinfo-output {args.sumo_rl_out}_tripinfo.xml"
@@ -37,12 +37,12 @@ def main():
     env = ss.pettingzoo_env_to_vec_env_v1(env)
     env = ss.concat_vec_envs_v1(env, num_vec_envs=1, num_cpus=1, base_class='stable_baselines3')
 
-    stats_path = "models20/vec_normalize_9450000_steps.pkl" 
+    stats_path = "models20_no_rew/vec_normalize_4300000_steps.pkl" 
     env = VecNormalize.load(stats_path, env)
     env.training = False
     env.norm_reward = False
 
-    model = PPO.load("models20/ppo_model_9450000_steps.zip")
+    model = PPO.load("models20_no_rew/ppo_model_4300000_steps.zip")
 
     veh_tracking = {}
     ped_tracking = {}

@@ -8,8 +8,8 @@ from utils import NemaPedestrianStandardizedObservation, NemaStandardizedObserva
 def main():
     # creating multi-agent environment
     env = sumo_rl.parallel_env(
-        net_file='simulation/grid-network-nema.net.xml',
-        route_file='simulation/vehs-nema.rou.xml,simulation/peds-nema.rou.xml',
+        net_file='simulation/test.net.xml',
+        route_file='simulation/vehs_test.rou.xml,simulation/peds_test.rou.xml',
         use_gui=False,
         num_seconds=3600,
         reward_fn=fair_wait_time_reward,
@@ -27,7 +27,7 @@ def main():
     env = VecNormalize(env, norm_obs=True, norm_reward=False)
 
     # saving
-    save_dir = "./models20"
+    save_dir = "./models-testing"
     adjusted_save_freq = max(50000 // env.num_envs, 1)
     
     custom_checkpoint_callback = SaveVecNormalizeCallback(
