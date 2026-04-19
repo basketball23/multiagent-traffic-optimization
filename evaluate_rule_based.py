@@ -12,7 +12,6 @@ PEDESTRIAN_WEIGHT = 10
 MAX_PED_WAIT_ALLOWANCE = 45
 PROGRAM_ID = 1
 
-
 def run_multi_rule_based():
     """
     Runs the SUMO simulation using dynamic rule-based traffic lights.
@@ -44,6 +43,7 @@ def run_multi_rule_based():
     
     step = 0
     phase_timers = {} 
+    previous_phases = {}
     
     veh_tracking = {}
     ped_tracking = {}
@@ -63,9 +63,9 @@ def run_multi_rule_based():
         
         while step < 3600:
             traci.simulationStep()
-            
             arrived_vehicles.update(traci.simulation.getArrivedIDList())
             
+            # --- VEHICLE TRACKING ---
             for v_id in traci.vehicle.getIDList():
                 w = traci.vehicle.getAccumulatedWaitingTime(v_id)
                 if v_id not in veh_tracking:
@@ -78,9 +78,9 @@ def run_multi_rule_based():
                     if lane_id not in lane_tracking:
                         lane_tracking[lane_id] = 0.0
                     lane_tracking[lane_id] += delta
-                    
                 veh_tracking[v_id]['last'] = w
 
+            # --- PEDESTRIAN TRACKING ---
             for p_id in traci.person.getIDList():
                 w = traci.person.getWaitingTime(p_id)
                 if p_id not in ped_tracking:
@@ -89,80 +89,85 @@ def run_multi_rule_based():
                     ped_tracking[p_id]['total'] += (w - ped_tracking[p_id]['last'])
                 ped_tracking[p_id]['last'] = w
 
+            # --- ACTUATED LOGIC ---
             tl_ids = traci.trafficlight.getIDList()
             
             for target_light in tl_ids:
-                if target_light not in phase_timers:
-                    phase_timers[target_light] = 0
-                    traci.trafficlight.setPhaseDuration(target_light, 1000)
-                    
-                phase_timers[target_light] += 1
                 current_phase = traci.trafficlight.getPhase(target_light)
-                
-                logic = traci.trafficlight.getCompleteRedYellowGreenDefinition(target_light)[0]
-                num_phases = len(logic.phases)
-
                 state_string = traci.trafficlight.getRedYellowGreenState(target_light)
 
-                is_green_phase = ('g' in state_string.lower())
+                # Initialize tracker
+                if target_light not in previous_phases:
+                    previous_phases[target_light] = current_phase
+                    phase_timers[target_light] = 0
 
-                if is_green_phase:
-                    if phase_timers[target_light] >= MIN_GREEN_TIME:
-                        waiting_entities_on_red = 0
-                        active_entities_on_green = 0
-                        
-                        lanes = traci.trafficlight.getControlledLanes(target_light)
-                        
-                        unique_red_lanes = set()
-                        unique_green_lanes = set()
-
-                        for i, lane in enumerate(lanes):
-                            if state_string[i].lower() in ('r', 'y'):
-                                if lane not in unique_red_lanes:
-                                    waiting_entities_on_red += traci.lane.getLastStepHaltingNumber(lane)
-                                    unique_red_lanes.add(lane)
-                            elif state_string[i].lower() in ('g', 'G'):
-                                if lane not in unique_green_lanes:
-                                    active_entities_on_green += traci.lane.getLastStepVehicleNumber(lane)
-                                    unique_green_lanes.add(lane)
-                        
-                        max_ped_wait_time = 0
-                        ped_ids = traci.person.getIDList()
-                        for p_id in ped_ids:
-                            wait_time = traci.person.getWaitingTime(p_id)
-                            if wait_time > 0:
-                                next_edge = traci.person.getNextEdge(p_id)
-                                if any(next_edge in r_lane or r_lane in next_edge for r_lane in unique_red_lanes):
-                                    waiting_entities_on_red += PEDESTRIAN_WEIGHT
-                                    if wait_time > max_ped_wait_time:
-                                        max_ped_wait_time = wait_time
-                        
-                        demand_on_red = waiting_entities_on_red > 0
-                        queue_threshold_met = waiting_entities_on_red >= QUEUE_THRESHOLD
-                        max_green_hit = phase_timers[target_light] >= MAX_GREEN_TIME
-
-                        green_flow_dying = active_entities_on_green <= 1
-
-                        force_switch = max_green_hit and demand_on_red
-                        gap_out_switch = queue_threshold_met and green_flow_dying
-                        low_demand_switch = demand_on_red and green_flow_dying
-                        pedestrian_override = max_ped_wait_time >= MAX_PED_WAIT_ALLOWANCE
-                        
-                        if force_switch or gap_out_switch or low_demand_switch or pedestrian_override:
-                            next_phase = (current_phase + 1) % num_phases
-                            traci.trafficlight.setPhase(target_light, next_phase)
-                            traci.trafficlight.setPhaseDuration(target_light, 1000)
-                            phase_timers[target_light] = 0 
+                # Detect Phase Transitions
+                if current_phase != previous_phases[target_light]:
+                    previous_phases[target_light] = current_phase
+                    phase_timers[target_light] = 0
                 
-                else:
-                    target_duration = logic.phases[current_phase].duration
-                    
-                    if phase_timers[target_light] >= target_duration:
-                        next_phase = (current_phase + 1) % num_phases
-                        traci.trafficlight.setPhase(target_light, next_phase)
-                        traci.trafficlight.setPhaseDuration(target_light, 1000)
-                        phase_timers[target_light] = 0
+                phase_timers[target_light] += 1
 
+                # ACTUATED LOGIC: Only run if the state string has a PRIORITY GREEN 'G'
+                # This is more reliable than current_phase % 3 if your XML is inconsistent.
+                if 'G' in state_string:
+                    # Force the green light to stay on by default
+                    traci.trafficlight.setPhaseDuration(target_light, 1000)
+
+                    if phase_timers[target_light] >= MIN_GREEN_TIME:
+                        waiting_on_red = 0
+                        active_on_green = 0
+                        
+                        links = traci.trafficlight.getControlledLinks(target_light)
+                        active_lanes = set()
+                        red_lanes = set()
+
+                        for i, state in enumerate(state_string):
+                            if i < len(links) and links[i]:
+                                for connection in links[i]:
+                                    lane = connection[0]
+                                    if state == 'G':
+                                        active_lanes.add(lane)
+                                    else:
+                                        red_lanes.add(lane)
+                        
+                        # Use Speed Threshold (only count cars moving > 2m/s as "Active")
+                        for lane in active_lanes:
+                            veh_ids = traci.lane.getLastStepVehicleIDs(lane)
+                            for v_id in veh_ids:
+                                # Distance check + Speed check (prevents stalled cars from holding green)
+                                dist_to_inter = traci.lane.getLength(lane) - traci.vehicle.getLanePosition(v_id)
+                                if dist_to_inter < 60 and traci.vehicle.getSpeed(v_id) > 2.0:
+                                    active_on_green += 1
+
+                        # Count waiting cars on red lanes
+                        for lane in red_lanes:
+                            waiting_on_red += traci.lane.getLastStepHaltingNumber(lane)
+
+                        # Pedestrian Override
+                        ped_waiting = False
+                        tls_edges = set(l.split('_')[0] for l in list(active_lanes) + list(red_lanes))
+                        for p_id in traci.person.getIDList():
+                            if traci.person.getWaitingTime(p_id) > MAX_PED_WAIT_ALLOWANCE:
+                                if traci.person.getRoadID(p_id) in tls_edges:
+                                    ped_waiting = True
+                                    break
+
+                        # DECISION
+                        max_green_reached = phase_timers[target_light] >= MAX_GREEN_TIME
+                        no_more_flow = active_on_green == 0
+                        heavy_waiting = waiting_on_red >= QUEUE_THRESHOLD
+
+                        if (max_green_reached) or (no_more_flow and heavy_waiting) or ped_waiting:
+                            # Advance to Yellow
+                            num_phases = len(traci.trafficlight.getAllProgramLogics(target_light)[0].phases)
+                            traci.trafficlight.setPhase(target_light, (current_phase + 1) % num_phases)
+                else:
+                    # During Yellow/Red, let SUMO's natural durations take over
+                    # We do NOT call setPhaseDuration(1000) here.
+                    pass
+
+            # --- STATISTICS LOGGING ---
             if step % 5 == 0:
                 net_veh_count = 0
                 net_veh_time = 0
@@ -201,13 +206,8 @@ def run_multi_rule_based():
                 else:
                     intra_lane_fairness = 1.0
 
-                ped_ids = traci.person.getIDList()
-                ped_waits = [traci.person.getWaitingTime(p_id) for p_id in ped_ids]
-                
-                if len(ped_waits) > 0:
-                    p95_ped_wait = np.percentile(ped_waits, 95)
-                else:
-                    p95_ped_wait = 0.0
+                ped_waits = [traci.person.getWaitingTime(p_id) for p_id in traci.person.getIDList()]
+                p95_ped_wait = np.percentile(ped_waits, 95) if ped_waits else 0.0
 
                 writer.writerow([
                     step, net_veh_count, net_veh_time, veh_avg_wait,
@@ -220,6 +220,7 @@ def run_multi_rule_based():
     traci.close()
     print("Rule-Based Simulation Complete.")
 
+    # --- FINAL SUMMARY REPORTING ---
     true_stats = parse_true_metrics(tripinfo_file)
 
     lane_delays = list(lane_tracking.values())

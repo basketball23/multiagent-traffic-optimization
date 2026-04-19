@@ -20,7 +20,6 @@ colors = {
     'Proposed PPO': '#10b981'
 }
 
-# --- 2. Parsing Functions ---
 def parse_summary_file(filepath):
     with open(filepath, 'r', encoding='utf-8') as f:
         content = f.read()
