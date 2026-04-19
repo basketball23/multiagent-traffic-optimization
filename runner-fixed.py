@@ -4,7 +4,7 @@ import csv
 from utils import get_intersection_metrics
 
 NET_FILE = 'simulation/grid-network-nema.net.xml'
-ROUTE_FILES = 'simulation/vehs-nema.rou.xml,simulation/peds-nema.rou.xml'
+ROUTE_FILES = 'simulation/high-demand-nema/vehs_high_seed1.rou.xml,simulation/high-demand-nema/peds_high_seed1.rou.xml'
 OUTPUT_FILE = 'fixed_timer_data.csv'
 SIM_SECONDS = 3600
 LOG_INTERVAL = 5
