@@ -1,0 +1,12 @@
+MARL Evaluation Summary: simulation/extreme-demand/vehs_extreme_seed4.rou.xml,simulation/extreme-demand/peds_extreme_seed4.rou.xml
+========================================
+Total Vehicles Tracked:     461
+True Avg Veh Wait Time:     56.04s
+True 95th Percentile Veh:   143.00s
+----------------------------------------
+Total Pedestrians Tracked:  650
+True Avg Ped Wait Time:     189.32s
+True 95th Percentile Ped:   683.07s
+----------------------------------------
+FINAL CROSS-MODAL GAP:      133.28s
+TRUE INTRA-LANE FAIRNESS:   0.1060

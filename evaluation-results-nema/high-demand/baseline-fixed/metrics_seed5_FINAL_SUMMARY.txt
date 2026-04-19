@@ -1,0 +1,12 @@
+FIXED-TIMER Baseline Summary: simulation/high-demand-nema/vehs_high_seed5.rou.xml,simulation/high-demand-nema/peds_high_seed5.rou.xml
+========================================
+Completed Vehicle Trips:    1124
+True Avg Veh Wait Time:     334.54s
+True 95th Percentile Veh:   1519.80s
+----------------------------------------
+Pedestrians Tracked:        1373
+True Avg Ped Wait Time:     49.82s
+True 95th Percentile Ped:   128.74s
+----------------------------------------
+FINAL CROSS-MODAL GAP:      284.73s
+TRUE INTRA-LANE FAIRNESS:   0.2953

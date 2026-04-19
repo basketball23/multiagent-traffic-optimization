@@ -1,10 +1,10 @@
 <configuration>
     <input>
-        <net-file value="grid-network.net.xml"/>
-        <route-files value="vehs.rou.xml,peds.rou.xml"/>
+        <net-file value="grid-network-nema.net.xml"/>
+        <route-files value="vehs-nema.rou.xml,peds-nema.rou.xml"/>
     </input>
     <time>
         <begin value="0"/>
-        <end value="20000"/>
+        <end value="3600"/>
     </time>
 </configuration>

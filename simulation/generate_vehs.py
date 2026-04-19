@@ -2,9 +2,9 @@ import subprocess
 import os
 
 num_files = 10
-network_file = "grid-network.net.xml"
+network_file = "grid-network-nema.net.xml"
 end_time = "3600"
-period = "1.6"
+period = "1.2"
 fringe_factor = "10"
 
 sumo_home = os.environ.get("SUMO_HOME")
@@ -20,7 +20,7 @@ for i in range(1, num_files + 1):
     seed_value = str(i) 
     
     # Dynamically name the output file
-    output_file = f"vehs_higher_seed{seed_value}.rou.xml"
+    output_file = f"vehs_high_seed{seed_value}.rou.xml"
     
     # Build the command for vehicles
     command = [

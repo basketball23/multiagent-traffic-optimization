@@ -3,7 +3,8 @@ import supersuit as ss
 
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import VecNormalize
-from utils import NeighborAwareObservation, fair_wait_time_reward, get_intersection_metrics
+from utils import NemaPedestrianStandardizedObservation, NemaStandardizedObservation
+from utils import fair_wait_time_reward, vehicle_baseline_reward, get_intersection_metrics
 
 import traci
 import csv
@@ -11,13 +12,13 @@ import csv
 def main():
     # creating multi-agent environment
     env = sumo_rl.parallel_env(
-        net_file='simulation/grid-network.net.xml',
-        route_file='simulation/extreme-demand/vehs_extreme_seed1.rou.xml,simulation/extreme-demand/peds_extreme_seed1.rou.xml',
+        net_file='simulation/grid-network-nema.net.xml',
+        route_file='simulation/vehs-nema.rou.xml,simulation/peds-nema.rou.xml',
         out_csv_name='evaluation',
         use_gui=True,
         num_seconds=3600,
         reward_fn=fair_wait_time_reward,
-        observation_class=NeighborAwareObservation,
+        observation_class=NemaPedestrianStandardizedObservation,
     )
 
     # used to make compatible
@@ -30,12 +31,12 @@ def main():
     env = ss.concat_vec_envs_v1(env, num_vec_envs=1, num_cpus=1, base_class='stable_baselines3')
 
     # TODO: Load saved env
-    stats_path = "models16/vec_normalize_7000000_steps.pkl" 
+    stats_path = "models20/vec_normalize_9450000_steps.pkl" 
     env = VecNormalize.load(stats_path, env)
     env.training = False
     env.norm_reward = False
 
-    model = PPO.load("models16/ppo_model_7000000_steps.zip")
+    model = PPO.load("models20/ppo_model_9450000_steps.zip")
 
     with open('rl_model_data.csv', mode='w', newline='') as file:
         writer = csv.writer(file)
