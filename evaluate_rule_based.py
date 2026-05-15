@@ -220,7 +220,6 @@ def run_multi_rule_based():
     traci.close()
     print("Rule-Based Simulation Complete.")
 
-    # --- FINAL SUMMARY REPORTING ---
     true_stats = parse_true_metrics(tripinfo_file)
 
     lane_delays = list(lane_tracking.values())
